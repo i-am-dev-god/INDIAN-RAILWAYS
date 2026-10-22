@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { startGuestSession, type GuestSessionTracker } from './guest-progress';
+import { createSecunderabadYard, isSecunderabadStationSite, SECUNDERABAD_LAYOUT, type SecunderabadView } from './secunderabad-yard';
+import { createVandeBharat20102, VANDE_BHARAT_20102 } from './vande-bharat-20102';
 import './style.css';
 
 const byId = <T extends HTMLElement>(id: string): T => {
@@ -16,9 +19,23 @@ const fallback = byId<HTMLDivElement>('fallback-message');
 const timeSlider = byId<HTMLInputElement>('time-slider');
 const timeReadout = byId<HTMLElement>('time-readout');
 const sceneCaption = byId<HTMLElement>('scene-caption-text');
+const stationStateTitle = byId<HTMLElement>('station-state-title');
+const stationStateDetail = byId<HTMLElement>('station-state-detail');
+const stationViewButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-station-view]'));
+const cameraViewButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-camera-view]'));
 const focusToggle = byId<HTMLButtonElement>('focus-toggle');
-const exploreButton = byId<HTMLButtonElement>('explore-button');
+const playNowButton = byId<HTMLButtonElement>('play-now-button');
+const guestStatus = byId<HTMLDivElement>('guest-status');
+const guestStatusLabel = byId<HTMLElement>('guest-status-label');
 const resetButton = byId<HTMLButtonElement>('reset-view');
+const drivePanel = byId<HTMLElement>('drive-panel');
+const trainSpeedValue = byId<HTMLElement>('train-speed-value');
+const driveStatus = byId<HTMLElement>('drive-status');
+const throttleControl = byId<HTMLInputElement>('throttle-control');
+const brakeControl = byId<HTMLInputElement>('brake-control');
+const throttleOutput = byId<HTMLOutputElement>('throttle-output');
+const brakeOutput = byId<HTMLOutputElement>('brake-output');
+const resetTrainButton = byId<HTMLButtonElement>('reset-train');
 
 const modulo = (value: number, divisor: number): number => ((value % divisor) + divisor) % divisor;
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
@@ -84,7 +101,9 @@ function terrainHeight(x: number, z: number): number {
   const plateau = fractalNoise(x * 0.0032 + 41, z * 0.0032 - 19, 5, 22);
   const rolling = fractalNoise(x * 0.012 + 8, z * 0.012 + 28, 4, 39);
   const grain = fractalNoise(x * 0.055 - 17, z * 0.055 + 12, 3, 61);
-  return 2.8 + (plateau - 0.5) * 10.5 + (rolling - 0.5) * 3.1 + (grain - 0.5) * 0.48;
+  const natural = 2.8 + (plateau - 0.5) * 10.5 + (rolling - 0.5) * 3.1 + (grain - 0.5) * 0.48;
+  const stationFootprint = (1 - smoothstep(125, 155, Math.abs(x))) * (1 - smoothstep(365, 410, Math.abs(z)));
+  return THREE.MathUtils.lerp(natural, 2.8, stationFootprint);
 }
 
 function makeGroundMaps(anisotropy: number): { color: THREE.CanvasTexture; height: THREE.CanvasTexture; roughness: THREE.CanvasTexture } {
@@ -255,8 +274,9 @@ function makeGrassField(): THREE.BufferGeometry {
 
   const bladeCount = window.innerWidth < 700 ? 2_400 : 5_400;
   for (let i = 0; i < bladeCount; i += 1) {
-    const x = (random() - 0.5) * 310;
-    const z = (random() - 0.5) * 300;
+    const x = (random() - 0.5) * 540;
+    const z = (random() - 0.5) * 820;
+    if (isSecunderabadStationSite(x, z, 0.8)) continue;
     const patch = fractalNoise(x * 0.026 + 6, z * 0.026 - 12, 3, 81);
     if (random() > smoothstep(0.32, 0.72, patch) * 0.86) continue;
 
@@ -301,9 +321,10 @@ function addRockField(scene: THREE.Scene, material: THREE.MeshStandardMaterial, 
   ];
 
   for (let i = 0; i < count; i += 1) {
-    const x = (random() - 0.5) * 430;
-    const z = (random() - 0.5) * 390;
+    const x = (random() - 0.5) * 860;
+    const z = (random() - 0.5) * 1_020;
     const size = 0.42 + random() ** 2 * (z > 90 ? 3.8 : 2.65);
+    if (isSecunderabadStationSite(x, z, size + 1.5)) continue;
     const sx = size * (0.72 + random() * 0.66);
     const sy = size * (0.36 + random() * 0.45);
     const sz = size * (0.7 + random() * 0.7);
@@ -342,9 +363,10 @@ function addScrub(scene: THREE.Scene): void {
   const shades = [new THREE.Color('#64734d'), new THREE.Color('#77764c'), new THREE.Color('#858057'), new THREE.Color('#59694d')];
 
   for (let i = 0; i < count; i += 1) {
-    const x = (random() - 0.5) * 340;
-    const z = (random() - 0.5) * 310;
+    const x = (random() - 0.5) * 680;
+    const z = (random() - 0.5) * 920;
     const scale = 0.28 + random() * (z > 70 ? 1.4 : 0.82);
+    if (isSecunderabadStationSite(x, z, scale + 0.7)) continue;
     transform.position.set(x, terrainHeight(x, z) + scale * 0.22, z);
     transform.rotation.set(random() * 0.25, random() * Math.PI * 2, random() * 0.25);
     transform.scale.set(scale * (0.75 + random() * 0.55), scale * (0.5 + random() * 0.4), scale * (0.8 + random() * 0.5));
@@ -354,6 +376,85 @@ function addScrub(scene: THREE.Scene): void {
   }
   scrub.computeBoundingSphere();
   scene.add(scrub);
+}
+
+function createCabViewOverlay(): THREE.Group {
+  const cab = new THREE.Group();
+  cab.name = 'Vande Bharat driver-cab camera surround — schematic interior overlay';
+  cab.userData.caveat = 'Generic control desk and windscreen frame; no 20102 cab drawing or interior reference was inspected.';
+  const frameMaterial = new THREE.MeshBasicMaterial({ color: '#283536' });
+  const consoleMaterial = new THREE.MeshBasicMaterial({ color: '#252f31' });
+  const trimMaterial = new THREE.MeshBasicMaterial({ color: '#aaa78f' });
+  const displayMaterial = new THREE.MeshBasicMaterial({ color: '#77b7ac' });
+  const glassMaterial = new THREE.MeshBasicMaterial({
+    color: '#9bb1b5',
+    transparent: true,
+    opacity: 0.12,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(3.35, 1.78), glassMaterial);
+  glass.name = 'Cab windscreen — translucent study';
+  glass.position.set(0, 0.58, -2.35);
+  glass.renderOrder = 3;
+  cab.add(glass);
+
+  const framePieces = [
+    { position: [-1.72, 0.58, -2.3], size: [0.14, 1.92, 0.16] },
+    { position: [1.72, 0.58, -2.3], size: [0.14, 1.92, 0.16] },
+    { position: [0, 1.53, -2.3], size: [3.55, 0.14, 0.16] },
+    { position: [0, -0.34, -2.3], size: [3.55, 0.18, 0.2] },
+    { position: [0, 0.58, -2.28], size: [0.07, 1.75, 0.13] },
+  ];
+  for (const piece of framePieces) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...piece.size as [number, number, number]), frameMaterial);
+    mesh.position.set(...piece.position as [number, number, number]);
+    mesh.name = 'Cab window structural frame';
+    cab.add(mesh);
+  }
+
+  const dashboard = new THREE.Mesh(new THREE.BoxGeometry(3.55, 0.5, 0.82), consoleMaterial);
+  dashboard.name = 'Driver control desk — schematic';
+  dashboard.position.set(0, -0.82, -1.48);
+  cab.add(dashboard);
+  const instrumentShelf = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.18, 0.52), trimMaterial);
+  instrumentShelf.name = 'Instrument panel trim';
+  instrumentShelf.position.set(0, -0.55, -1.78);
+  cab.add(instrumentShelf);
+
+  for (const x of [-0.68, 0.68]) {
+    const display = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.38, 0.05), displayMaterial);
+    display.name = 'Cab display — generic illuminated panel';
+    display.position.set(x, -0.42, -1.88);
+    cab.add(display);
+  }
+  const deskEdge = new THREE.Mesh(new THREE.BoxGeometry(3.75, 0.11, 0.88), trimMaterial);
+  deskEdge.name = 'Driver desk edge';
+  deskEdge.position.set(0, -1.09, -1.46);
+  cab.add(deskEdge);
+
+  const makeCabLever = (label: string, x: number, color: string): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.name = `Cab ${label.toLowerCase()} lever pivot`;
+    pivot.position.set(x, -0.53, -1.53);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.08, 0.26), frameMaterial);
+    base.position.y = -0.02;
+    pivot.add(base);
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.38, 8), trimMaterial);
+    shaft.position.y = 0.21;
+    pivot.add(shaft);
+    const grip = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 8), new THREE.MeshBasicMaterial({ color }));
+    grip.name = `${label} control grip`;
+    grip.position.y = 0.42;
+    pivot.add(grip);
+    cab.add(pivot);
+    return pivot;
+  };
+  const throttleLever = makeCabLever('Throttle', -1.22, '#d6a354');
+  const brakeLever = makeCabLever('Brake', 1.22, '#bd705b');
+  cab.userData.throttleLever = throttleLever;
+  cab.userData.brakeLever = brakeLever;
+  return cab;
 }
 
 function boot(): void {
@@ -414,19 +515,20 @@ function boot(): void {
   scene.add(clouds);
 
   const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 5_000);
-  camera.position.set(0, 13, 53);
+  camera.position.set(174, 165, 420);
+  scene.add(camera);
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 3.8, 0);
+  controls.target.set(0, 13, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.055;
   controls.enablePan = true;
   controls.panSpeed = 0.48;
   controls.rotateSpeed = 0.42;
   controls.zoomSpeed = 0.7;
-  controls.minDistance = 16;
-  controls.maxDistance = 106;
-  controls.minPolarAngle = 0.34;
+  controls.minDistance = 24;
+  controls.maxDistance = 1_200;
+  controls.minPolarAngle = 0.12;
   controls.maxPolarAngle = 1.52;
   controls.update();
 
@@ -435,22 +537,22 @@ function boot(): void {
 
   const sun = new THREE.DirectionalLight('#ffe2b2', 2.8);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1_024, 1_024);
-  sun.shadow.camera.left = -140;
-  sun.shadow.camera.right = 140;
-  sun.shadow.camera.top = 140;
-  sun.shadow.camera.bottom = -140;
+  sun.shadow.mapSize.set(1_536, 1_536);
+  sun.shadow.camera.left = -260;
+  sun.shadow.camera.right = 260;
+  sun.shadow.camera.top = 260;
+  sun.shadow.camera.bottom = -260;
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 260;
+  sun.shadow.camera.far = 720;
   sun.shadow.bias = -0.00018;
   sun.shadow.normalBias = 0.025;
   sun.shadow.radius = 3;
   scene.add(sun);
 
-  scene.fog = new THREE.Fog('#c7b18f', 150, 590);
+  scene.fog = new THREE.Fog('#c7b18f', 340, 1_250);
 
-  const terrainSize = 620;
-  const terrainSegments = window.innerWidth < 700 ? 112 : 164;
+  const terrainSize = 1_280;
+  const terrainSegments = window.innerWidth < 700 ? 128 : 188;
   const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
   terrainGeometry.rotateX(-Math.PI / 2);
   const terrainPositions = terrainGeometry.attributes.position;
@@ -459,8 +561,7 @@ function boot(): void {
   for (let i = 0; i < terrainPositions.count; i += 1) {
     const x = terrainPositions.getX(i);
     const z = terrainPositions.getZ(i);
-    const elevation = terrainHeight(x, z);
-    terrainPositions.setY(i, elevation);
+    terrainPositions.setY(i, terrainHeight(x, z));
     const variation = 0.83 + fractalNoise(x * 0.02, z * 0.02, 3, 311) * 0.28;
     const stone = smoothstep(0.66, 0.84, fractalNoise(x * 0.013 - 4, z * 0.013 + 7, 4, 261)) * 0.16;
     tint.setRGB(variation, variation * (1 - stone * 0.08), variation * (1 - stone * 0.15));
@@ -481,9 +582,31 @@ function boot(): void {
     vertexColors: true,
   });
   const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
-  terrain.name = 'Procedural Deccan plateau ground';
+  terrain.name = 'Deccan plateau context outside the schematic station boundary';
   terrain.receiveShadow = true;
   scene.add(terrain);
+
+  const yard = createSecunderabadYard();
+  yard.future.visible = false;
+  scene.add(yard.common, yard.current, yard.future);
+  let activeStationView: SecunderabadView = 'current';
+
+  const train = createVandeBharat20102();
+  scene.add(train);
+  const cabOverlay = createCabViewOverlay();
+  cabOverlay.visible = false;
+  camera.add(cabOverlay);
+  const throttleLever = cabOverlay.userData.throttleLever as THREE.Group;
+  const brakeLever = cabOverlay.userData.brakeLever as THREE.Group;
+  const trainStartPositionZ = train.position.z;
+  const trainHalfLength = VANDE_BHARAT_20102.coachCount * VANDE_BHARAT_20102.coachLengthMeters / 2;
+  const maxTrainCenterZ = SECUNDERABAD_LAYOUT.trackLength / 2 - trainHalfLength;
+  const maxSpeedMetersPerSecond = 60 / 3.6;
+  const driving = { throttle: 0, brake: 0, speedMetersPerSecond: 0, atTrackEnd: false };
+  let emergencyBrakeHeld = false;
+  let brakeBeforeEmergency = 0;
+  type CameraView = 'station' | 'exterior' | 'cab';
+  let activeCameraView: CameraView = 'station';
 
   const rockMaterial = new THREE.MeshStandardMaterial({
     color: '#aaa092',
@@ -509,6 +632,81 @@ function boot(): void {
 
   const initialCamera = camera.position.clone();
   const initialTarget = controls.target.clone();
+  function setCameraView(view: CameraView): void {
+    activeCameraView = view;
+    train.visible = view !== 'cab';
+    cabOverlay.visible = view === 'cab';
+    drivePanel.hidden = view === 'station';
+    app.classList.toggle('has-drive-controls', view !== 'station');
+    controls.enabled = true;
+
+    if (view === 'station') {
+      camera.position.copy(initialCamera);
+      controls.target.copy(initialTarget);
+    } else if (view === 'exterior') {
+      camera.position.set(train.position.x + 195, train.position.y + 83, train.position.z + 128);
+      controls.target.set(train.position.x, train.position.y + 2.3, train.position.z);
+    } else {
+      const cabPositionZ = train.position.z + VANDE_BHARAT_20102.coachLengthMeters * 3.5 + 7.1;
+      camera.position.set(train.position.x, train.position.y + 2.72, cabPositionZ);
+      controls.target.set(train.position.x, train.position.y + 2.72, cabPositionZ + 64);
+    }
+    controls.update();
+    if (view === 'cab') controls.enabled = false;
+
+    for (const button of cameraViewButtons) {
+      const selected = button.dataset.cameraView === view;
+      button.setAttribute('aria-pressed', String(selected));
+      button.classList.toggle('is-active', selected);
+    }
+    setTimeOfDay(Number(timeSlider.value));
+    updateDriveReadout();
+  }
+
+  function updateDriveReadout(): void {
+    const speedKmh = Math.round(driving.speedMetersPerSecond * 3.6);
+    const status = driving.atTrackEnd
+      ? 'END OF TRACK'
+      : speedKmh > 0
+        ? driving.brake > 0 ? 'BRAKING' : driving.throttle > 0 ? 'POWER ON' : 'COASTING'
+        : driving.brake > 0 ? 'BRAKE SET' : driving.throttle > 0 ? 'READY' : 'STOPPED';
+    if (trainSpeedValue.textContent !== String(speedKmh)) trainSpeedValue.textContent = String(speedKmh);
+    if (driveStatus.textContent !== status) driveStatus.textContent = status;
+    train.userData.speedKmh = speedKmh;
+    train.userData.throttlePercent = driving.throttle;
+    train.userData.brakePercent = driving.brake;
+  }
+
+  function setThrottle(value: number): void {
+    const stepped = driving.atTrackEnd ? 0 : Math.round(THREE.MathUtils.clamp(value, 0, 100) / 5) * 5;
+    driving.throttle = stepped;
+    throttleControl.value = String(stepped);
+    throttleOutput.textContent = `${stepped}%`;
+    throttleControl.setAttribute('aria-valuetext', `${stepped}% power`);
+    throttleLever.rotation.z = THREE.MathUtils.lerp(-0.32, 0.32, stepped / 100);
+    updateDriveReadout();
+  }
+
+  function setBrake(value: number): void {
+    const stepped = Math.round(THREE.MathUtils.clamp(value, 0, 100) / 5) * 5;
+    driving.brake = stepped;
+    brakeControl.value = String(stepped);
+    brakeOutput.textContent = `${stepped}%`;
+    brakeControl.setAttribute('aria-valuetext', `${stepped}% brake`);
+    brakeLever.rotation.z = THREE.MathUtils.lerp(-0.32, 0.32, stepped / 100);
+    updateDriveReadout();
+  }
+
+  function resetDrivingState(): void {
+    driving.atTrackEnd = false;
+    driving.speedMetersPerSecond = 0;
+    train.position.z = trainStartPositionZ;
+    setThrottle(0);
+    setBrake(0);
+    if (activeCameraView !== 'station') setCameraView(activeCameraView);
+    else updateDriveReadout();
+  }
+
   const fogColor = new THREE.Color();
   const dayFog = new THREE.Color('#c8b48f');
   const duskFog = new THREE.Color('#9a7772');
@@ -544,28 +742,149 @@ function boot(): void {
     const hours = Math.floor(hour);
     const minutes = Math.round((hour - hours) * 60);
     timeReadout.textContent = `${String(hours).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-    if (hour < 17.2) sceneCaption.textContent = `${timeReadout.textContent} · HIGH AFTERNOON LIGHT STUDY`;
-    else if (hour < 18.6) sceneCaption.textContent = `${timeReadout.textContent} · WARMING EVENING LIGHT`;
-    else sceneCaption.textContent = `${timeReadout.textContent} · DUSK LIGHT STUDY`;
+    const lightPhase = hour < 17.2 ? 'HIGH AFTERNOON' : hour < 18.6 ? 'EVENING LIGHT' : 'DUSK LIGHT';
+    const stateCaption = activeStationView === 'current'
+      ? 'CURRENT · WORKS ILLUSTRATIVE'
+      : 'PLANNED · NO VERIFIED YARD CHANGE';
+    const cameraCaption = activeCameraView === 'cab' ? 'CAB · DRIVE STUDY' : activeCameraView === 'exterior' ? '20102 · EXTERIOR' : 'STATION VIEW';
+    sceneCaption.textContent = `${stateCaption} · ${cameraCaption} · ${lightPhase} · ${timeReadout.textContent}`;
+  }
+
+  function setStationView(view: SecunderabadView): void {
+    activeStationView = view;
+    yard.current.visible = view === 'current';
+    yard.future.visible = view === 'future';
+    for (const button of stationViewButtons) {
+      const selected = button.dataset.stationView === view;
+      button.setAttribute('aria-pressed', String(selected));
+      button.classList.toggle('is-active', selected);
+    }
+    if (view === 'current') {
+      stationStateTitle.textContent = 'CURRENT · REDEVELOPMENT WORKS REPORTED';
+      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Partial cladding, open upper frames, footprints, facade and cardinal placement are schematic. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are illustrative, not a station drawing.';
+    } else {
+      stationStateTitle.textContent = 'PLANNED · POST-REDEVELOPMENT STUDY';
+      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; no architectural drawings were inspected. The same schematic track group is carried forward as “no verified yard change.” The train drive study is bounded to the straight schematic track; route, signals and station stops are not simulated.';
+    }
+    setTimeOfDay(Number(timeSlider.value));
   }
 
   setTimeOfDay(Number(timeSlider.value));
   timeSlider.addEventListener('input', () => setTimeOfDay(Number(timeSlider.value)));
+  for (const button of stationViewButtons) {
+    button.addEventListener('click', () => {
+      const view = button.dataset.stationView;
+      if (view === 'current' || view === 'future') setStationView(view);
+    });
+  }
+  setStationView('current');
+  setCameraView('station');
 
   function resetCamera(): void {
-    camera.position.copy(initialCamera);
-    controls.target.copy(initialTarget);
-    controls.update();
+    setCameraView('station');
   }
   resetButton.addEventListener('click', resetCamera);
+  for (const button of cameraViewButtons) {
+    button.addEventListener('click', () => {
+      const view = button.dataset.cameraView;
+      if (view === 'station' || view === 'exterior' || view === 'cab') setCameraView(view);
+    });
+  }
+
+  throttleControl.addEventListener('input', () => setThrottle(Number(throttleControl.value)));
+  brakeControl.addEventListener('input', () => setBrake(Number(brakeControl.value)));
+  resetTrainButton.addEventListener('click', resetDrivingState);
+  setThrottle(0);
+  setBrake(0);
+
+  function releaseEmergencyBrake(): void {
+    if (!emergencyBrakeHeld) return;
+    emergencyBrakeHeld = false;
+    setBrake(brakeBeforeEmergency);
+  }
+
+  window.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (activeCameraView === 'station') return;
+    const target = event.target;
+    const isRangeInput = target instanceof HTMLInputElement && target.type === 'range';
+    const isInteractive = target instanceof HTMLElement
+      && (target.isContentEditable
+        || target instanceof HTMLButtonElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || (target instanceof HTMLInputElement && !isRangeInput));
+    if (isInteractive || (isRangeInput && (event.key === 'ArrowUp' || event.key === 'ArrowDown'))) return;
+
+    if (event.code === 'Space') {
+      event.preventDefault();
+      if (!event.repeat && !emergencyBrakeHeld) {
+        emergencyBrakeHeld = true;
+        brakeBeforeEmergency = driving.brake;
+        setBrake(100);
+      }
+      return;
+    }
+    if (event.repeat) return;
+
+    switch (event.key.toLowerCase()) {
+      case 'w':
+      case 'arrowup':
+        event.preventDefault();
+        setThrottle(driving.throttle + 10);
+        break;
+      case 's':
+      case 'arrowdown':
+        event.preventDefault();
+        setThrottle(driving.throttle - 10);
+        break;
+      case '[':
+        event.preventDefault();
+        setBrake(driving.brake - 10);
+        break;
+      case ']':
+        event.preventDefault();
+        setBrake(driving.brake + 10);
+        break;
+      default:
+        break;
+    }
+  });
+  window.addEventListener('keyup', (event: KeyboardEvent) => {
+    if (event.code === 'Space') releaseEmergencyBrake();
+  });
+  window.addEventListener('blur', releaseEmergencyBrake);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') releaseEmergencyBrake();
+  });
+
+  let guestSession: GuestSessionTracker | null = null;
 
   function toggleFocus(): void {
     const focused = app.classList.toggle('is-focused');
     focusToggle.setAttribute('aria-pressed', String(focused));
     focusToggle.innerHTML = focused ? 'SHOW FIELD NOTES <span aria-hidden="true">↙</span>' : 'FOCUS VIEW <span aria-hidden="true">↗</span>';
   }
+
+  function startGuestPlay(): void {
+    if (!guestSession) {
+      try {
+        guestSession = startGuestSession();
+        guestStatusLabel.textContent = guestSession.persistent
+          ? 'GUEST · SAVED IN THIS BROWSER'
+          : 'GUEST · THIS VISIT ONLY';
+      } catch (error) {
+        console.warn('Guest progress could not be started; continuing for this visit only.', error);
+        guestStatusLabel.textContent = 'GUEST · THIS VISIT ONLY';
+      }
+      guestStatus.hidden = false;
+    }
+
+    if (!app.classList.contains('is-focused')) toggleFocus();
+    setCameraView('exterior');
+  }
+
   focusToggle.addEventListener('click', toggleFocus);
-  exploreButton.addEventListener('click', toggleFocus);
+  playNowButton.addEventListener('click', startGuestPlay);
 
   function resize(): void {
     const width = window.innerWidth;
@@ -581,8 +900,36 @@ function boot(): void {
   const clock = new THREE.Clock();
   function animate(): void {
     const delta = Math.min(clock.getDelta(), 0.05);
-    // Damping gives the camera a small amount of momentum without an always-running scene animation.
-    if (delta > 0) controls.update();
+    if (delta > 0) {
+      const previousSpeed = driving.speedMetersPerSecond;
+      const traction = (driving.throttle / 100) * 0.55;
+      const braking = (driving.brake / 100) * (1.65 + previousSpeed * 0.03);
+      const rollingResistance = previousSpeed > 0 ? 0.025 + previousSpeed * 0.003 : 0;
+      const acceleration = traction - braking - rollingResistance;
+      driving.speedMetersPerSecond = THREE.MathUtils.clamp(
+        previousSpeed + acceleration * delta,
+        0,
+        maxSpeedMetersPerSecond,
+      );
+
+      const distance = (previousSpeed + driving.speedMetersPerSecond) * 0.5 * delta;
+      const remaining = Math.max(0, maxTrainCenterZ - train.position.z);
+      const travelled = Math.min(distance, remaining);
+      train.position.z += travelled;
+      if (remaining <= distance && !driving.atTrackEnd) {
+        driving.atTrackEnd = true;
+        driving.speedMetersPerSecond = 0;
+        setThrottle(0);
+      }
+      if (travelled > 0 && activeCameraView !== 'station') {
+        camera.position.z += travelled;
+        controls.target.z += travelled;
+      }
+
+      updateDriveReadout();
+      // Damping gives the camera a small amount of momentum without an always-running scene animation.
+      controls.update();
+    }
     renderer.render(scene, camera);
     window.requestAnimationFrame(animate);
   }

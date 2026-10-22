@@ -1,7 +1,7 @@
 # Scene 01 research note — Ground and sky
 
 **Research date:** 2026-10-22  
-**Build scope:** a first interactive environment study only. No station architecture, train, rails, signals, or player-data integration is part of this milestone.
+**Build scope:** a first interactive environment study only. No station architecture, train, rails, or signals are part of this milestone. Guest progress is stored locally in the browser; there is no login, backend, or database integration.
 
 ## Regional evidence
 
@@ -27,6 +27,13 @@
 - Use a physically based atmospheric sky and a high-sun 13:00 baseline. An interactive slider allows inspection of the lighting toward evening.
 - Generate ground and cloud textures in code for this prototype. No scraped photographs or third-party model assets are bundled.
 - Keep the first scene free of railway structures so the ground/sky foundation can be reviewed before track and station assets are researched and added.
+
+## Guest-mode progress and privacy
+
+- The **Play Now** action enters without authentication. The interface labels the run as a guest and discloses that browser-local progress is saved when storage is available.
+- A versioned browser `localStorage` record contains a random guest ID, creation/last-played timestamps, session count, and approximate foreground playtime. The timer pauses when the page is hidden; nothing is transmitted to a server.
+- Local browser data may be cleared and is not synced across browsers or devices. If storage is blocked, play continues for the visit only. The client-measured playtime is approximate and must not be treated as tamper-proof.
+- Account sign-in and any guest-to-account save/merge flow are future work. They should be explicit opt-in actions in Settings; no account or Supabase client is involved in this milestone.
 
 ## Accuracy and scope limits
 
