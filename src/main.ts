@@ -892,10 +892,10 @@ function boot(): void {
     }
     if (view === 'current') {
       stationStateTitle.textContent = 'CURRENT · REDEVELOPMENT WORKS REPORTED';
-      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Partial cladding, open upper frames, footprints, facade and cardinal placement are schematic. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are illustrative, not a station drawing.';
+      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Platform amenities, forecourt access, building footprints, partial cladding and cardinal placement are illustrative. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are not a station drawing.';
     } else {
       stationStateTitle.textContent = 'PLANNED · POST-REDEVELOPMENT STUDY';
-      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; no architectural drawings were inspected. The same schematic track group is carried forward as “no verified yard change.” The train drive study is bounded to the straight schematic track; route, signals and station stops are not simulated.';
+      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; representative lift/escalator cores and generic Metro/Bus panels are illustrative, not exact placements. The same schematic track group is carried forward as “no verified yard change.” The drive study has no route, signals or station stops.';
     }
     setTimeOfDay(Number(timeSlider.value));
   }
@@ -995,7 +995,9 @@ function boot(): void {
   function toggleFocus(): void {
     const focused = app.classList.toggle('is-focused');
     focusToggle.setAttribute('aria-pressed', String(focused));
-    focusToggle.innerHTML = focused ? 'SHOW FIELD NOTES <span aria-hidden="true">↙</span>' : 'FOCUS VIEW <span aria-hidden="true">↗</span>';
+    focusToggle.innerHTML = focused
+      ? 'SHOW FIELD NOTES <span aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M12 4 4 12M11 12H4V5" /></svg></span>'
+      : 'FOCUS VIEW <span aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 12 12 4M5 4h7v7" /></svg></span>';
   }
 
   function startGuestPlay(): void {

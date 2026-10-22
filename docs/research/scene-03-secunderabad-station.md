@@ -78,10 +78,10 @@ Corridor proposals are separate: Ghatkesar–Yadadri/Yadadri–Kazipet and the G
 
 ## Validation for this detail pass
 
-- `npm run build` and `GITHUB_PAGES=true npm run build` both passed on 22 October 2026. The final bundle was 689.34 kB (179.85 kB gzip), retaining the existing >500 kB chunk-size warning.
-- A runtime scene-construction check instantiated the common, current and planned groups, advanced the station clock, confirmed the new planned access/wayfinding groups, and found no non-finite instanced transforms (22,278 total instances across those groups in the final build).
-- Geometry-only CPU/SVG views of the forecourt and planned access cutaway were inspected for placement and gross overlap. They omit actual textures, WebGL depth behavior, lighting and shadows, so they are not a faithful visual-regression capture.
-- A faithful browser/WebGL screenshot was not available in this environment: the existing headless-Chromium capture path is blocked by missing `libnspr4.so`, `libnss3.so` and `libnssutil3.so`. The build/runtime/geometry checks do not visually verify night rendering or prove the ground-flicker fix on a GPU.
+- `npm run build` and `GITHUB_PAGES=true npm run build` passed on 22 October 2026 after a clean `npm ci`. The final JavaScript bundle was 689.47 kB (179.91 kB gzip); Vite still reports the >500 kB chunk-size warning. Five locally served Latin WOFF2 fonts total about 110 kB.
+- A runtime scene-construction check instantiated the common, current and planned groups, advanced the station clock, confirmed the planned access/wayfinding groups, and found no non-finite instanced transforms (22,278 total instances across those groups).
+- Headless Chromium using SwiftShader software WebGL loaded the actual scene with a working WebGL context, no fallback, no JavaScript errors and no failed network requests after localizing the UI fonts. Current, Planned, 20:00 night, Exterior and Cab views were captured and inspected; guest Play Now, camera/station selectors, the time slider and driving controls responded.
+- The screenshots show no obvious z-fighting at the inspected viewpoints, and the night lighting is visible. SwiftShader is not a hardware-performance benchmark, and still images cannot prove flicker-free behavior over time or on every GPU; the original depth-buffer fix remains a reasoned separation, not a universal hardware guarantee.
 
 ## Sources
 
