@@ -859,6 +859,9 @@ function boot(): void {
     yard.night.poolMaterial.opacity = nightFactor * 0.58;
     yard.night.lampMaterial.emissiveIntensity = 0.08 + nightFactor * 2.2;
     yard.night.windowMaterial.emissiveIntensity = nightFactor * 0.68;
+    yard.night.displayMaterial.emissiveIntensity = 0.12 + nightFactor * 0.82;
+    yard.night.streetLampMaterial.emissiveIntensity = nightFactor * 1.15;
+    yard.night.updateStationClock(hour);
     sun.shadow.needsUpdate = true;
 
     if (elevationDegrees > 22) fogColor.copy(dayFog);

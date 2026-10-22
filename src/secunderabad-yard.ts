@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createSecunderabadBuildings } from './secunderabad-buildings';
+import { createSecunderabadSurroundings } from './secunderabad-surroundings';
 
 export type SecunderabadView = 'current' | 'future';
 
@@ -57,7 +58,9 @@ const GAUGE_HALF = SECUNDERABAD_LAYOUT.trackGauge / 2;
 type Transform = {
   position: THREE.Vector3;
   scale: THREE.Vector3;
+  rotationX?: number;
   rotationY?: number;
+  rotationZ?: number;
   color?: THREE.ColorRepresentation;
 };
 
@@ -86,13 +89,69 @@ function addBoxInstances(
     const transform = transforms[index];
     dummy.position.copy(transform.position);
     dummy.scale.copy(transform.scale);
-    dummy.rotation.set(0, transform.rotationY ?? 0, 0);
+    dummy.rotation.set(transform.rotationX ?? 0, transform.rotationY ?? 0, transform.rotationZ ?? 0);
     dummy.updateMatrix();
     mesh.setMatrixAt(index, dummy.matrix);
     if (transform.color !== undefined) mesh.setColorAt(index, new THREE.Color(transform.color));
   }
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  parent.add(mesh);
+  return mesh;
+}
+
+function addCylinderInstances(
+  parent: THREE.Group,
+  name: string,
+  geometry: THREE.CylinderGeometry,
+  material: THREE.Material,
+  transforms: readonly Transform[],
+): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
+  mesh.name = name;
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  const dummy = new THREE.Object3D();
+  for (let index = 0; index < transforms.length; index += 1) {
+    const transform = transforms[index];
+    dummy.position.copy(transform.position);
+    dummy.scale.copy(transform.scale);
+    dummy.rotation.set(transform.rotationX ?? 0, transform.rotationY ?? 0, transform.rotationZ ?? 0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(index, dummy.matrix);
+    if (transform.color !== undefined) mesh.setColorAt(index, new THREE.Color(transform.color));
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  parent.add(mesh);
+  return mesh;
+}
+
+function addPlaneInstances(
+  parent: THREE.Group,
+  name: string,
+  geometry: THREE.PlaneGeometry,
+  material: THREE.Material,
+  transforms: readonly Transform[],
+): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
+  mesh.name = name;
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  const transform = new THREE.Object3D();
+  for (let index = 0; index < transforms.length; index += 1) {
+    const placement = transforms[index];
+    transform.position.copy(placement.position);
+    transform.scale.copy(placement.scale);
+    transform.rotation.set(0, placement.rotationY ?? 0, 0);
+    transform.updateMatrix();
+    mesh.setMatrixAt(index, transform.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
   mesh.computeBoundingSphere();
   parent.add(mesh);
   return mesh;
@@ -205,6 +264,112 @@ function makeLightPoolTexture(): THREE.CanvasTexture {
   texture.generateMipmaps = true;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   return texture;
+}
+
+function makeTrainInformationTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 144;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create a station information display.');
+  context.fillStyle = '#10272a';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#ad9362';
+  context.lineWidth = 5;
+  context.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+  context.fillStyle = '#f5df9c';
+  context.font = '700 25px Arial, sans-serif';
+  context.textAlign = 'left';
+  context.textBaseline = 'middle';
+  context.fillText('TRAIN INFORMATION', 18, 30);
+  context.fillStyle = '#b6d2c7';
+  context.font = '600 17px Arial, sans-serif';
+  context.fillText('ARRIVALS', 18, 78);
+  context.fillText('DEPARTURES', 183, 78);
+  context.fillText('PLATFORM STATUS', 365, 78);
+  context.strokeStyle = 'rgba(194,214,193,0.35)';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(18, 105);
+  context.lineTo(494, 105);
+  context.stroke();
+  context.fillStyle = '#e4aa55';
+  for (const x of [24, 189, 371]) {
+    context.fillRect(x, 118, 36, 5);
+    context.fillRect(x + 49, 118, 54, 5);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeClockFace(): { texture: THREE.CanvasTexture; update: (hour: number) => void } {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create the station clock face.');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+
+  const update = (rawHour: number): void => {
+    const hour = THREE.MathUtils.euclideanModulo(rawHour, 24);
+    const hour12 = hour % 12;
+    const minuteFraction = hour - Math.floor(hour);
+    context.clearRect(0, 0, 256, 256);
+    context.fillStyle = '#f1e9d6';
+    context.beginPath();
+    context.arc(128, 128, 122, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = '#31514f';
+    context.lineWidth = 9;
+    context.stroke();
+    for (let tick = 0; tick < 60; tick += 1) {
+      const angle = tick * Math.PI / 30 - Math.PI / 2;
+      const inner = tick % 5 === 0 ? 97 : 108;
+      const outer = 115;
+      context.strokeStyle = '#294543';
+      context.lineWidth = tick % 5 === 0 ? 4 : 1.6;
+      context.beginPath();
+      context.moveTo(128 + Math.cos(angle) * inner, 128 + Math.sin(angle) * inner);
+      context.lineTo(128 + Math.cos(angle) * outer, 128 + Math.sin(angle) * outer);
+      context.stroke();
+    }
+    context.fillStyle = '#263f3e';
+    context.font = '600 21px Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    for (const marker of [
+      { label: '12', angle: -Math.PI / 2 },
+      { label: '3', angle: 0 },
+      { label: '6', angle: Math.PI / 2 },
+      { label: '9', angle: Math.PI },
+    ]) {
+      context.fillText(marker.label, 128 + Math.cos(marker.angle) * 78, 128 + Math.sin(marker.angle) * 78);
+    }
+    const minuteAngle = minuteFraction * Math.PI * 2 - Math.PI / 2;
+    const hourAngle = ((hour12 + minuteFraction) / 12) * Math.PI * 2 - Math.PI / 2;
+    context.lineCap = 'round';
+    context.strokeStyle = '#1e3435';
+    context.lineWidth = 7;
+    context.beginPath();
+    context.moveTo(128, 128);
+    context.lineTo(128 + Math.cos(hourAngle) * 54, 128 + Math.sin(hourAngle) * 54);
+    context.stroke();
+    context.lineWidth = 4;
+    context.beginPath();
+    context.moveTo(128, 128);
+    context.lineTo(128 + Math.cos(minuteAngle) * 82, 128 + Math.sin(minuteAngle) * 82);
+    context.stroke();
+    context.fillStyle = '#b84f38';
+    context.beginPath();
+    context.arc(128, 128, 6, 0, Math.PI * 2);
+    context.fill();
+    texture.needsUpdate = true;
+  };
+  update(13);
+  return { texture, update };
 }
 
 function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.Material, railMaterial: THREE.Material): THREE.Group {
@@ -342,6 +507,26 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
     roughness: 0.42,
     metalness: 0.08,
   });
+  const displayTexture = makeTrainInformationTexture();
+  const displayMaterial = new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    map: displayTexture,
+    emissive: '#ffb64f',
+    emissiveMap: displayTexture,
+    emissiveIntensity: 0.16,
+    roughness: 0.58,
+    metalness: 0.04,
+  });
+  const clockFace = makeClockFace();
+  const clockMaterial = new THREE.MeshBasicMaterial({ map: clockFace.texture, side: THREE.DoubleSide, toneMapped: false });
+  const informationHousingMaterial = new THREE.MeshStandardMaterial({ color: '#314440', roughness: 0.56, metalness: 0.24 });
+  const amenityCabinetMaterial = new THREE.MeshStandardMaterial({ color: '#818d88', roughness: 0.72, metalness: 0.16 });
+  const binMaterial = new THREE.MeshStandardMaterial({ color: '#3d4b45', roughness: 0.82, metalness: 0.02 });
+  const binLabelMaterial = new THREE.MeshStandardMaterial({ color: '#4d9468', roughness: 0.72, metalness: 0.02 });
+  const supportMaterial = new THREE.MeshStandardMaterial({ color: '#666f6a', roughness: 0.7, metalness: 0.36 });
+  const speakerMaterial = new THREE.MeshStandardMaterial({ color: '#d4cdbb', roughness: 0.76, metalness: 0.02 });
+  const cameraMaterial = new THREE.MeshStandardMaterial({ color: '#333d3c', roughness: 0.64, metalness: 0.12 });
+  const waterPanelMaterial = new THREE.MeshStandardMaterial({ color: '#5e8986', roughness: 0.48, metalness: 0.08 });
 
   const signPosts: Transform[] = [];
   const benches: Transform[] = [];
@@ -351,12 +536,96 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
   const lightPools: Transform[] = [];
   const expansionJoints: Transform[] = [];
   const platformDrains: Transform[] = [];
+  const displayHousings: Transform[] = [];
+  const displaySupports: Transform[] = [];
+  const displayFaces: Transform[] = [];
+  const clockFaces: Transform[] = [];
+  const recyclingBins: Transform[] = [];
+  const binLids: Transform[] = [];
+  const binLabels: Transform[] = [];
+  const drinkingWaterCabinets: Transform[] = [];
+  const waterPanels: Transform[] = [];
+  const waterTaps: Transform[] = [];
+  const publicAddressSpeakers: Transform[] = [];
+  const publicAddressBrackets: Transform[] = [];
+  const cctvCameras: Transform[] = [];
+  const cctvBrackets: Transform[] = [];
 
   for (let platformIndex = 0; platformIndex < SECUNDERABAD_LAYOUT.platformCount; platformIndex += 1) {
     const leftTrack = TRACK_CENTERS[platformIndex];
     const rightTrack = TRACK_CENTERS[platformIndex + 1];
     if (leftTrack === undefined || rightTrack === undefined) continue;
     const platformCenter = (leftTrack + rightTrack) / 2;
+    const infoBoardY = platformHeight + 4.0;
+    displayHousings.push({
+      position: new THREE.Vector3(platformCenter, infoBoardY, 0),
+      scale: new THREE.Vector3(1, 1, 1),
+    });
+    for (const side of [-1, 1]) {
+      displaySupports.push({
+        position: new THREE.Vector3(platformCenter + side * 1.62, platformHeight + 2.08, 0),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      displayFaces.push({
+        position: new THREE.Vector3(platformCenter, infoBoardY, side * 0.094),
+        scale: new THREE.Vector3(1, 1, 1),
+        rotationY: side < 0 ? Math.PI : 0,
+      });
+      clockFaces.push({
+        position: new THREE.Vector3(platformCenter, platformHeight + 5.02, side * 0.1),
+        scale: new THREE.Vector3(1, 1, 1),
+        rotationY: side < 0 ? Math.PI : 0,
+      });
+    }
+    for (const z of [-158, 158]) {
+      recyclingBins.push({
+        position: new THREE.Vector3(platformCenter - 2.42, platformHeight + 0.43, z),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      binLids.push({
+        position: new THREE.Vector3(platformCenter - 2.42, platformHeight + 0.87, z),
+        scale: new THREE.Vector3(1, 1, 1),
+        color: '#497c62',
+      });
+      binLabels.push({
+        position: new THREE.Vector3(platformCenter - 2.42, platformHeight + 0.54, z + 0.3),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+    }
+    for (const z of [-50, 50]) {
+      drinkingWaterCabinets.push({
+        position: new THREE.Vector3(platformCenter + 2.36, platformHeight + 0.68, z),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      waterPanels.push({
+        position: new THREE.Vector3(platformCenter + 2.36, platformHeight + 0.83, z + 0.37),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      waterTaps.push({
+        position: new THREE.Vector3(platformCenter + 2.36, platformHeight + 0.35, z + 0.43),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+    }
+    for (const side of [-1, 1]) {
+      const speakerZ = side * 135;
+      publicAddressSpeakers.push({
+        position: new THREE.Vector3(platformCenter + side * 0.92, platformHeight + 5.25, speakerZ),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      publicAddressBrackets.push({
+        position: new THREE.Vector3(platformCenter + side * 0.46, platformHeight + 5.25, speakerZ),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      const cameraZ = side * 270;
+      cctvCameras.push({
+        position: new THREE.Vector3(platformCenter + side * 0.86, platformHeight + 5.2, cameraZ),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      cctvBrackets.push({
+        position: new THREE.Vector3(platformCenter + side * 0.43, platformHeight + 5.2, cameraZ),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+    }
     const platform = new THREE.Mesh(platformGeometry, concrete);
     platform.name = `Platform ${platformIndex + 1} — schematic island/platform strip`;
     platform.position.set(platformCenter, platformHeight / 2, 0);
@@ -452,6 +721,131 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
   );
   drainMesh.castShadow = false;
   drainMesh.receiveShadow = false;
+
+  const displaySupportMesh = addBoxInstances(
+    group,
+    'Electronic train-information board support posts — illustrative',
+    new THREE.BoxGeometry(0.12, 4.16, 0.12),
+    supportMaterial,
+    displaySupports.map((item) => ({ ...item, scale: new THREE.Vector3(1, 1, 1) })),
+  );
+  displaySupportMesh.castShadow = false;
+  displaySupportMesh.receiveShadow = false;
+  const displayHousingMesh = addBoxInstances(
+    group,
+    'Double-sided electronic train-information display housings — schematic',
+    new THREE.BoxGeometry(3.6, 0.98, 0.18),
+    informationHousingMaterial,
+    displayHousings,
+  );
+  displayHousingMesh.castShadow = false;
+  displayHousingMesh.receiveShadow = false;
+  addPlaneInstances(
+    group,
+    'Electronic train-indication screens — placeholder labels, not timetable data',
+    new THREE.PlaneGeometry(3.42, 0.78),
+    displayMaterial,
+    displayFaces,
+  );
+  addPlaneInstances(
+    group,
+    'Analog station clocks — each face follows the study-time slider',
+    new THREE.PlaneGeometry(0.82, 0.82),
+    clockMaterial,
+    clockFaces,
+  );
+
+  const binBodyMesh = addBoxInstances(
+    group,
+    'Covered waste bins on platforms — representative placements',
+    new THREE.BoxGeometry(0.72, 0.86, 0.56),
+    binMaterial,
+    recyclingBins,
+  );
+  binBodyMesh.castShadow = false;
+  binBodyMesh.receiveShadow = false;
+  const binLidMesh = addBoxInstances(
+    group,
+    'Waste-bin lids',
+    new THREE.BoxGeometry(0.76, 0.1, 0.6),
+    binLabelMaterial,
+    binLids,
+  );
+  binLidMesh.castShadow = false;
+  binLidMesh.receiveShadow = false;
+  const binLabelMesh = addBoxInstances(
+    group,
+    'Small recycling/cleanliness label panels — generic',
+    new THREE.BoxGeometry(0.34, 0.28, 0.035),
+    supportMaterial,
+    binLabels,
+  );
+  binLabelMesh.castShadow = false;
+  binLabelMesh.receiveShadow = false;
+  const waterCabinetMesh = addBoxInstances(
+    group,
+    'Drinking-water points — illustrative platform amenity cabinets',
+    new THREE.BoxGeometry(0.76, 1.36, 0.72),
+    amenityCabinetMaterial,
+    drinkingWaterCabinets,
+  );
+  waterCabinetMesh.castShadow = false;
+  waterCabinetMesh.receiveShadow = false;
+  const waterPanelMesh = addBoxInstances(
+    group,
+    'Water-point indicator panels',
+    new THREE.BoxGeometry(0.42, 0.32, 0.04),
+    waterPanelMaterial,
+    waterPanels,
+  );
+  waterPanelMesh.castShadow = false;
+  waterPanelMesh.receiveShadow = false;
+  const waterTapMesh = addBoxInstances(
+    group,
+    'Small stainless water-point spouts',
+    new THREE.BoxGeometry(0.24, 0.05, 0.24),
+    supportMaterial,
+    waterTaps,
+  );
+  waterTapMesh.castShadow = false;
+  waterTapMesh.receiveShadow = false;
+  const paBracketMesh = addBoxInstances(
+    group,
+    'Public-address speaker mounting arms — attached to platform light masts',
+    new THREE.BoxGeometry(0.92, 0.1, 0.1),
+    supportMaterial,
+    publicAddressBrackets,
+  );
+  paBracketMesh.castShadow = false;
+  paBracketMesh.receiveShadow = false;
+  const paMesh = addBoxInstances(
+    group,
+    'Platform public-address speaker boxes — schematic',
+    new THREE.BoxGeometry(0.55, 0.35, 0.42),
+    speakerMaterial,
+    publicAddressSpeakers,
+  );
+  paMesh.castShadow = false;
+  paMesh.receiveShadow = false;
+  const cctvBracketMesh = addBoxInstances(
+    group,
+    'CCTV mounting arms — attached to platform light masts',
+    new THREE.BoxGeometry(0.86, 0.08, 0.1),
+    supportMaterial,
+    cctvBrackets,
+  );
+  cctvBracketMesh.castShadow = false;
+  cctvBracketMesh.receiveShadow = false;
+  const cctvMesh = addBoxInstances(
+    group,
+    'Compact platform CCTV housings — illustrative, not a camera-placement plan',
+    new THREE.BoxGeometry(0.42, 0.22, 0.34),
+    cameraMaterial,
+    cctvCameras,
+  );
+  cctvMesh.castShadow = false;
+  cctvMesh.receiveShadow = false;
+
   addBoxInstances(group, 'Platform lighting masts', new THREE.BoxGeometry(1, 1, 1), lightPoleMaterial, lightPoles.map((item) => ({
     ...item,
     scale: new THREE.Vector3(0.12, 5.65, 0.12),
@@ -490,6 +884,191 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
   group.add(lightPoolMesh);
   group.userData.nightPoolMaterial = lightPoolMaterial;
   group.userData.platformLampMaterial = lightHeadMaterial;
+  group.userData.nightDisplayMaterial = displayMaterial;
+  group.userData.updateStationClock = clockFace.update;
+  return group;
+}
+
+function makeStationForecourt(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'Schematic station forecourt, passenger drop-off lanes and local traffic — not a mapped access plan';
+  const roadMaterial = new THREE.MeshStandardMaterial({ color: '#414847', roughness: 0.96, metalness: 0.01 });
+  const pavingMaterial = new THREE.MeshStandardMaterial({ color: '#b8b3a7', roughness: 0.91, metalness: 0.02 });
+  const curbMaterial = new THREE.MeshStandardMaterial({ color: '#777e78', roughness: 0.9, metalness: 0.03 });
+  const lineMaterial = new THREE.MeshBasicMaterial({ color: '#e9e5d8', side: THREE.DoubleSide, toneMapped: false });
+  const roadCenters = [-137, 137];
+  const roadTransforms: Transform[] = [];
+  const curbTransforms: Transform[] = [];
+  const paving: Transform[] = [];
+  const paint: Transform[] = [];
+  for (const x of roadCenters) {
+    roadTransforms.push({ position: new THREE.Vector3(x, 0.135, 0), scale: new THREE.Vector3(1, 1, 1) });
+    curbTransforms.push(
+      { position: new THREE.Vector3(x - Math.sign(x) * 5.8, 0.205, 0), scale: new THREE.Vector3(1, 1, 1) },
+      { position: new THREE.Vector3(x + Math.sign(x) * 5.8, 0.205, 0), scale: new THREE.Vector3(1, 1, 1) },
+    );
+    const walkWidth = x < 0 ? 0.8 : 5.0;
+    const walkX = x < 0 ? -130.6 : 128;
+    paving.push({ position: new THREE.Vector3(walkX, 0.145, 0), scale: new THREE.Vector3(walkWidth, 1, 1) });
+    for (let z = -49; z <= 49; z += 16) {
+      paint.push({
+        position: new THREE.Vector3(x, 0.174, z),
+        scale: new THREE.Vector3(0.16, 1, 5.8),
+      });
+    }
+    for (const crossing of [-60, 60]) {
+      for (let stripe = 0; stripe < 7; stripe += 1) {
+        paint.push({
+          position: new THREE.Vector3(x, 0.174, crossing + (stripe - 3) * 0.86),
+          scale: new THREE.Vector3(11.3, 1, 0.46),
+          color: '#f0ecdf',
+        });
+      }
+    }
+  }
+  const roadMesh = addBoxInstances(group, 'Two terminal-side pick-up / drop-off lanes — conceptual circulation', new THREE.BoxGeometry(12, 0.055, 140), roadMaterial, roadTransforms);
+  roadMesh.castShadow = false;
+  roadMesh.receiveShadow = false;
+  const curbMesh = addBoxInstances(group, 'Low forecourt lane kerbs', new THREE.BoxGeometry(0.18, 0.2, 140), curbMaterial, curbTransforms);
+  curbMesh.castShadow = false;
+  curbMesh.receiveShadow = false;
+  const pavingMesh = addBoxInstances(group, 'Passenger forecourt footpaths', new THREE.BoxGeometry(1, 0.06, 132), pavingMaterial, paving);
+  pavingMesh.castShadow = false;
+  pavingMesh.receiveShadow = false;
+  const paintMesh = addBoxInstances(group, 'Forecourt lane dashes and zebra crossings', new THREE.BoxGeometry(1, 0.012, 1), lineMaterial, paint);
+  paintMesh.castShadow = false;
+  paintMesh.receiveShadow = false;
+
+  const autoBody: Transform[] = [];
+  const autoCanopy: Transform[] = [];
+  const autoRoof: Transform[] = [];
+  const autoGlass: Transform[] = [];
+  const sedanBody: Transform[] = [];
+  const sedanCab: Transform[] = [];
+  const sedanRoof: Transform[] = [];
+  const sedanGlass: Transform[] = [];
+  const vehicleWheels: Transform[] = [];
+  const headlamps: Transform[] = [];
+  const tailLamps: Transform[] = [];
+  const autoMaterials = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.66, metalness: 0.12 });
+  const canopyMaterial = new THREE.MeshStandardMaterial({ color: '#e7c45d', roughness: 0.73, metalness: 0.04 });
+  const carMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.62, metalness: 0.12 });
+  const glassMaterial = new THREE.MeshStandardMaterial({ color: '#4b6162', roughness: 0.28, metalness: 0.12 });
+  const tireMaterial = new THREE.MeshStandardMaterial({ color: '#242a28', roughness: 0.92, metalness: 0.02 });
+  const lampMaterial = new THREE.MeshStandardMaterial({ color: '#f5e8bf', emissive: '#f7d998', emissiveIntensity: 0.12, roughness: 0.45 });
+  const tailMaterial = new THREE.MeshStandardMaterial({ color: '#9b4137', emissive: '#9b4137', emissiveIntensity: 0.08, roughness: 0.52 });
+  const rotateLocal = (x: number, z: number, yaw: number): THREE.Vector2 => new THREE.Vector2(
+    x * Math.cos(yaw) + z * Math.sin(yaw),
+    -x * Math.sin(yaw) + z * Math.cos(yaw),
+  );
+  for (const side of [-1, 1]) {
+    const vehicles = [
+      { kind: 'car', offsetX: -2.8, z: -42, yaw: side < 0 ? 0 : Math.PI, color: '#c5c4b8' },
+      { kind: 'auto', offsetX: 2.8, z: -14, yaw: side < 0 ? Math.PI : 0, color: '#23805d' },
+      { kind: 'auto', offsetX: -2.8, z: 14, yaw: side < 0 ? 0 : Math.PI, color: '#2b7657' },
+      { kind: 'car', offsetX: 2.8, z: 42, yaw: side < 0 ? Math.PI : 0, color: '#b9b7aa' },
+    ] as const;
+    for (const vehicle of vehicles) {
+      const x = side * 137 + vehicle.offsetX;
+      const z = vehicle.z;
+      if (vehicle.kind === 'auto') {
+        autoBody.push({ position: new THREE.Vector3(x, 0.72, z), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw, color: vehicle.color });
+        autoCanopy.push({ position: new THREE.Vector3(x, 1.28, z + 0.12), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw, color: '#d9b84f' });
+        autoRoof.push({ position: new THREE.Vector3(x, 1.68, z + 0.12), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw, color: '#d5b448' });
+        const windshield = rotateLocal(0, -0.72, vehicle.yaw);
+        autoGlass.push({ position: new THREE.Vector3(x + windshield.x, 1.23, z + windshield.y), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw });
+        for (const wheel of [
+          { x: -0.62, z: 0.62 },
+          { x: 0.62, z: 0.62 },
+          { x: 0, z: -0.82 },
+        ]) {
+          const offset = rotateLocal(wheel.x, wheel.z, vehicle.yaw);
+          vehicleWheels.push({
+            position: new THREE.Vector3(x + offset.x, 0.43, z + offset.y),
+            scale: new THREE.Vector3(1, 1, 1),
+            rotationY: vehicle.yaw,
+            rotationZ: Math.PI / 2,
+          });
+        }
+      } else {
+        sedanBody.push({ position: new THREE.Vector3(x, 0.76, z), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw, color: vehicle.color });
+        sedanCab.push({ position: new THREE.Vector3(x, 1.23, z + 0.12), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw, color: vehicle.color });
+        sedanRoof.push({ position: new THREE.Vector3(x, 1.62, z + 0.12), scale: new THREE.Vector3(1, 1, 1), rotationY: vehicle.yaw, color: '#aaa99e' });
+        for (const glass of [
+          { x: 0, z: -0.93, scale: new THREE.Vector3(1.46, 0.46, 0.045) },
+          { x: 0, z: 1.17, scale: new THREE.Vector3(1.42, 0.42, 0.045) },
+          { x: -0.81, z: 0.1, scale: new THREE.Vector3(0.045, 0.4, 0.88) },
+          { x: 0.81, z: 0.1, scale: new THREE.Vector3(0.045, 0.4, 0.88) },
+        ]) {
+          const offset = rotateLocal(glass.x, glass.z, vehicle.yaw);
+          sedanGlass.push({
+            position: new THREE.Vector3(x + offset.x, 1.25, z + offset.y),
+            scale: glass.scale,
+            rotationY: vehicle.yaw,
+          });
+        }
+        for (const wheel of [
+          { x: -0.86, z: -1.18 }, { x: 0.86, z: -1.18 },
+          { x: -0.86, z: 1.18 }, { x: 0.86, z: 1.18 },
+        ]) {
+          const offset = rotateLocal(wheel.x, wheel.z, vehicle.yaw);
+          vehicleWheels.push({
+            position: new THREE.Vector3(x + offset.x, 0.43, z + offset.y),
+            scale: new THREE.Vector3(1, 1, 1),
+            rotationY: vehicle.yaw,
+            rotationZ: Math.PI / 2,
+          });
+        }
+      }
+      for (const frontSide of [-1, 1]) {
+        const zOffset = vehicle.kind === 'auto' ? -1.1 : -2.0;
+        const offset = rotateLocal(frontSide * 0.56, zOffset, vehicle.yaw);
+        headlamps.push({
+          position: new THREE.Vector3(x + offset.x, 0.84, z + offset.y),
+          scale: new THREE.Vector3(0.24, 0.14, 0.08),
+          rotationY: vehicle.yaw,
+        });
+      }
+      const rearOffset = rotateLocal(0, vehicle.kind === 'auto' ? 1.1 : 2.0, vehicle.yaw);
+      tailLamps.push({
+        position: new THREE.Vector3(x + rearOffset.x, 0.82, z + rearOffset.y),
+        scale: new THREE.Vector3(0.74, 0.12, 0.07),
+        rotationY: vehicle.yaw,
+      });
+    }
+  }
+
+  for (const [name, geometry, material, transforms] of [
+    ['Auto-rickshaw lower bodies — simplified local traffic props', new THREE.BoxGeometry(1.45, 0.72, 2.15), autoMaterials, autoBody],
+    ['Auto-rickshaw passenger canopies', new THREE.BoxGeometry(1.42, 0.72, 1.42), canopyMaterial, autoCanopy],
+    ['Auto-rickshaw roof caps', new THREE.BoxGeometry(1.5, 0.13, 1.5), canopyMaterial, autoRoof],
+    ['Auto-rickshaw windscreens', new THREE.BoxGeometry(1.08, 0.43, 0.045), glassMaterial, autoGlass],
+    ['Compact car bodies — generic static traffic props', new THREE.BoxGeometry(1.95, 0.74, 4.1), carMaterial, sedanBody],
+    ['Compact car cabins', new THREE.BoxGeometry(1.62, 0.74, 2.18), carMaterial, sedanCab],
+    ['Compact car roof panels', new THREE.BoxGeometry(1.56, 0.14, 1.75), carMaterial, sedanRoof],
+  ] as const) {
+    const mesh = addBoxInstances(group, name, geometry, material, transforms);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+  }
+  const carGlassMesh = addBoxInstances(group, 'Compact car glazing — dark neutral glass', new THREE.BoxGeometry(1, 1, 1), glassMaterial, sedanGlass);
+  carGlassMesh.castShadow = false;
+  carGlassMesh.receiveShadow = false;
+  const wheels = addCylinderInstances(
+    group,
+    'Station forecourt car and auto-rickshaw wheels',
+    new THREE.CylinderGeometry(0.31, 0.31, 0.16, 10),
+    tireMaterial,
+    vehicleWheels,
+  );
+  wheels.receiveShadow = false;
+  const headlampMesh = addBoxInstances(group, 'Local traffic headlamp blocks', new THREE.BoxGeometry(1, 1, 1), lampMaterial, headlamps);
+  headlampMesh.castShadow = false;
+  headlampMesh.receiveShadow = false;
+  const tailMesh = addBoxInstances(group, 'Local traffic rear lamps', new THREE.BoxGeometry(1, 1, 1), tailMaterial, tailLamps);
+  tailMesh.castShadow = false;
+  tailMesh.receiveShadow = false;
+  group.userData.caveat = 'Approach-lane location, markings and static local-traffic props are a circulation study, not a surveyed pickup/drop-off plan.';
   return group;
 }
 
@@ -860,6 +1439,194 @@ function addPlatformSheds(parent: THREE.Group, material: THREE.Material, detailM
   roofFrames.receiveShadow = false;
 }
 
+function makeLiftSignTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create a lift wayfinding panel.');
+  context.fillStyle = '#174f48';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#e5c776';
+  context.lineWidth = 6;
+  context.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+  context.fillStyle = '#fbf4df';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = '700 46px Arial, sans-serif';
+  context.fillText('LIFT  ↑', canvas.width / 2, canvas.height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function addRepresentativeAccessCores(parent: THREE.Group): void {
+  const group = new THREE.Group();
+  group.name = 'Representative planned lift and escalator nodes — schematic access cutaway';
+  const glass = new THREE.MeshStandardMaterial({ color: '#a6c5c4', roughness: 0.25, metalness: 0.12, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
+  const frame = new THREE.MeshStandardMaterial({ color: '#7b8984', roughness: 0.62, metalness: 0.32 });
+  const cabMaterial = new THREE.MeshStandardMaterial({ color: '#839997', roughness: 0.3, metalness: 0.18, transparent: true, opacity: 0.6, depthWrite: false });
+  const liftSignMaterial = new THREE.MeshBasicMaterial({ map: makeLiftSignTexture(), side: THREE.DoubleSide });
+  const treadMaterial = new THREE.MeshStandardMaterial({ color: '#454e4b', roughness: 0.8, metalness: 0.28 });
+  const handrailMaterial = new THREE.MeshStandardMaterial({ color: '#68746f', roughness: 0.48, metalness: 0.44 });
+  const shaftGlass: Transform[] = [];
+  const shaftFrames: Transform[] = [];
+  const elevatorCabs: Transform[] = [];
+  const liftDoors: Transform[] = [];
+  const liftSigns: Transform[] = [];
+  const escalatorBases: Transform[] = [];
+  const escalatorSteps: Transform[] = [];
+  const escalatorRails: Segment[] = [];
+  const lowerLevel = PLATFORM_TOP_Y;
+  const upperLevel = 12.0;
+  const shaftTop = 16.05;
+  const shaftHeight = shaftTop - lowerLevel;
+  const coreSites = [
+    { platformIndex: 2, z: -22 },
+    { platformIndex: 7, z: 22 },
+  ];
+  for (const site of coreSites) {
+    const x = PLATFORM_CENTERS[site.platformIndex] ?? 0;
+    const shaftCenterY = (lowerLevel + shaftTop) / 2;
+    shaftGlass.push({
+      position: new THREE.Vector3(x, shaftCenterY, site.z),
+      scale: new THREE.Vector3(1, 1, 1),
+    });
+    for (const xSide of [-1, 1]) {
+      for (const zSide of [-1, 1]) {
+        shaftFrames.push({
+          position: new THREE.Vector3(x + xSide * 1.2, shaftCenterY, site.z + zSide * 1.2),
+          scale: new THREE.Vector3(0.12, shaftHeight, 0.12),
+        });
+      }
+    }
+    elevatorCabs.push({
+      position: new THREE.Vector3(x, 6.1, site.z),
+      scale: new THREE.Vector3(1, 1, 1),
+    });
+    for (const levelY of [lowerLevel + 1.1, upperLevel - 0.45]) {
+      liftDoors.push({
+        position: new THREE.Vector3(x, levelY, site.z + 1.23),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+      liftSigns.push({
+        position: new THREE.Vector3(x, levelY + 1.45, site.z + 1.26),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+    }
+
+    for (const side of [-1, 1]) {
+      const lowerZ = site.z + side * 18;
+      const upperZ = site.z + side * 4;
+      const rise = upperLevel - (lowerLevel + 0.18);
+      const run = Math.abs(upperZ - lowerZ);
+      const length = Math.hypot(run, rise);
+      const angle = Math.atan2(rise, run);
+      const rampRotation = side < 0 ? -angle : angle;
+      const escalatorX = x + 2.48;
+      const centerZ = (lowerZ + upperZ) / 2;
+      const centerY = (lowerLevel + 0.18 + upperLevel) / 2;
+      escalatorBases.push({
+        position: new THREE.Vector3(escalatorX, centerY, centerZ),
+        scale: new THREE.Vector3(1, 1, length),
+        rotationX: rampRotation,
+      });
+      for (let step = 0; step <= 42; step += 1) {
+        const t = step / 42;
+        escalatorSteps.push({
+          position: new THREE.Vector3(escalatorX, lowerLevel + 0.18 + rise * t, lowerZ + (upperZ - lowerZ) * t),
+          scale: new THREE.Vector3(1, 1, 1),
+          rotationX: rampRotation,
+        });
+      }
+      for (const railSide of [-1, 1]) {
+        const yLift = 0.92;
+        escalatorRails.push({
+          start: new THREE.Vector3(escalatorX + railSide * 0.72, lowerLevel + 0.18 + yLift, lowerZ),
+          end: new THREE.Vector3(escalatorX + railSide * 0.72, upperLevel + yLift, upperZ),
+        });
+      }
+    }
+  }
+  const glassMesh = addBoxInstances(group, 'Transparent lift shaft glazing — representative access core', new THREE.BoxGeometry(2.28, shaftHeight, 2.28), glass, shaftGlass);
+  glassMesh.castShadow = false;
+  glassMesh.receiveShadow = false;
+  const frameMesh = addBoxInstances(group, 'Slim lift-core corner mullions', new THREE.BoxGeometry(1, 1, 1), frame, shaftFrames);
+  frameMesh.castShadow = false;
+  frameMesh.receiveShadow = false;
+  const cabMesh = addBoxInstances(group, 'Glass lift cars inside the schematic shafts', new THREE.BoxGeometry(1.55, 2.0, 1.55), cabMaterial, elevatorCabs);
+  cabMesh.castShadow = false;
+  cabMesh.receiveShadow = false;
+  const doorMesh = addBoxInstances(group, 'Lift landing doors at platform and concourse levels', new THREE.BoxGeometry(1.1, 2.2, 0.055), frame, liftDoors);
+  doorMesh.castShadow = false;
+  doorMesh.receiveShadow = false;
+  const liftSignMesh = addBoxInstances(group, 'Lift wayfinding marker panels', new THREE.BoxGeometry(0.78, 0.32, 0.05), liftSignMaterial, liftSigns);
+  liftSignMesh.castShadow = false;
+  liftSignMesh.receiveShadow = false;
+  const rampMesh = addBoxInstances(group, 'Inclined escalator tread-bed assemblies — schematic', new THREE.BoxGeometry(1.25, 0.32, 1), treadMaterial, escalatorBases);
+  rampMesh.castShadow = false;
+  rampMesh.receiveShadow = false;
+  const stepMesh = addBoxInstances(group, 'Visible escalator step treads — schematic detail', new THREE.BoxGeometry(1.0, 0.075, 0.44), treadMaterial, escalatorSteps);
+  stepMesh.castShadow = false;
+  stepMesh.receiveShadow = false;
+  const rails = addBeamInstances(group, 'Escalator handrails — sparse, kept clear of track/OHE', new THREE.CylinderGeometry(0.045, 0.05, 1, 6), handrailMaterial, escalatorRails, false);
+  rails.receiveShadow = false;
+  group.userData.caveat = 'Two representative access cores only; lift/escalator counts and locations are not a surveyed or approved architectural layout.';
+  parent.add(group);
+}
+
+function makeIntermodalWayfindingTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create a station wayfinding panel.');
+  context.fillStyle = '#134c47';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#d9c27d';
+  context.lineWidth = 8;
+  context.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+  context.fillStyle = '#fbf5df';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = '700 35px Arial, sans-serif';
+  context.fillText('CITY CONNECTIONS', canvas.width / 2, 75);
+  context.fillStyle = '#e5d89e';
+  context.font = '700 31px Arial, sans-serif';
+  context.fillText('METRO  ·  BUS', canvas.width / 2, 169);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function addIntermodalWayfinding(parent: THREE.Group): void {
+  const group = new THREE.Group();
+  group.name = 'Planned city-connection wayfinding — no directional alignment claimed';
+  const postMaterial = new THREE.MeshStandardMaterial({ color: '#66736d', roughness: 0.62, metalness: 0.28 });
+  const postTransforms: Transform[] = [];
+  const signTransforms: Transform[] = [];
+  const signMaterial = new THREE.MeshBasicMaterial({ map: makeIntermodalWayfindingTexture(), side: THREE.DoubleSide });
+  for (const side of [-1, 1]) {
+    for (const zSide of [-1, 1]) {
+      const x = side * 137;
+      const z = zSide * 74;
+      postTransforms.push({ position: new THREE.Vector3(x, 2.15, z), scale: new THREE.Vector3(1, 1, 1) });
+      signTransforms.push({
+        position: new THREE.Vector3(x, 3.85, z),
+        scale: new THREE.Vector3(1, 1, 1),
+        rotationY: side < 0 ? -Math.PI / 2 : Math.PI / 2,
+      });
+    }
+  }
+  const posts = addBoxInstances(group, 'Freestanding city-transfer wayfinding posts — conceptual', new THREE.BoxGeometry(0.18, 4.3, 0.18), postMaterial, postTransforms);
+  posts.castShadow = false;
+  posts.receiveShadow = false;
+  addPlaneInstances(group, 'Metro/bus connection panels — planned-only generic wayfinding', new THREE.PlaneGeometry(2.4, 1.2), signMaterial, signTransforms);
+  group.userData.caveat = 'Sign panels indicate reported multimodal integration only; no exit direction or exact location is represented.';
+  parent.add(group);
+}
+
 function addAirConcourse(parent: THREE.Group, complete: boolean, steel: THREE.Material, deckMaterial: THREE.Material, roofMaterial: THREE.Material): void {
   const group = new THREE.Group();
   group.name = complete
@@ -921,70 +1688,10 @@ function addAirConcourse(parent: THREE.Group, complete: boolean, steel: THREE.Ma
     throughRoof.name = 'Planned through-roof over platforms and tracks — length schematic';
     throughRoof.position.set(0, 20.1, 0);
     group.add(deck1, deck2, throughRoof);
+    addRepresentativeAccessCores(group);
   }
 
   parent.add(group);
-}
-
-function makeCityFacadeTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 192;
-  canvas.height = 192;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Could not create the urban-edge facade texture.');
-  context.fillStyle = '#bcb5a5';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  for (let floor = 0; floor < 6; floor += 1) {
-    const y = floor * 32;
-    context.fillStyle = floor % 2 === 0 ? '#c9c2b2' : '#b1aa99';
-    context.fillRect(0, y, canvas.width, 30);
-    context.fillStyle = '#8b887f';
-    context.fillRect(0, y + 29, canvas.width, 3);
-    for (let bay = 0; bay < 6; bay += 1) {
-      const x = 8 + bay * 31;
-      context.fillStyle = bay % 3 === floor % 3 ? '#536970' : '#384c50';
-      context.fillRect(x, y + 7, 18, 15);
-      context.fillStyle = 'rgba(221, 201, 157, 0.72)';
-      context.fillRect(x, y + 7, 18, 2);
-      context.fillStyle = '#716d63';
-      context.fillRect(x - 1, y + 22, 20, 2);
-    }
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.anisotropy = 4;
-  return texture;
-}
-
-function addCityContext(parent: THREE.Group, groundHeight: (x: number, z: number) => number): void {
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
-  const material = new THREE.MeshStandardMaterial({ map: makeCityFacadeTexture(), roughness: 0.94, metalness: 0, flatShading: true });
-  const transforms: Transform[] = [];
-  let state = 9_541;
-  const random = (): number => {
-    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    return state / 4_294_967_296;
-  };
-  const palette = ['#9e9483', '#aaa28f', '#7e8881', '#b0a795', '#7f887f', '#93877b'];
-  for (let index = 0; index < 130; index += 1) {
-    const side = random() < 0.5 ? -1 : 1;
-    const x = side * (158 + random() * 245);
-    const z = (random() - 0.5) * 950;
-    if (isSecunderabadStationSite(x, z, 8)) continue;
-    const width = 8 + random() * 25;
-    const depth = 12 + random() * 30;
-    const height = 6 + random() ** 1.8 * 45;
-    transforms.push({
-      position: new THREE.Vector3(x, groundHeight(x, z) - STATION_BASE_Y + height / 2, z),
-      scale: new THREE.Vector3(width, height, depth),
-      rotationY: (random() - 0.5) * 0.18,
-      color: palette[Math.floor(random() * palette.length)],
-    });
-  }
-  addBoxInstances(parent, 'Procedural Hyderabad urban-edge massing — not individual buildings', geometry, material, transforms);
 }
 
 export type SecunderabadYardParts = {
@@ -997,6 +1704,9 @@ export type SecunderabadYardParts = {
     poolMaterial: THREE.MeshBasicMaterial;
     lampMaterial: THREE.MeshStandardMaterial;
     windowMaterial: THREE.MeshStandardMaterial;
+    displayMaterial: THREE.MeshStandardMaterial;
+    streetLampMaterial: THREE.MeshStandardMaterial;
+    updateStationClock: (hour: number) => void;
   };
 };
 
@@ -1046,11 +1756,17 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
   siteGround.position.set(0, -0.075, 0);
   siteGround.receiveShadow = true;
   common.add(siteGround);
+  common.add(makeStationForecourt());
   common.add(makeRailGroup(ballast, sleeper, rail));
   const platforms = makePlatforms(concrete, tactile, yellow);
   common.add(platforms);
   common.add(makeOheGroup(steel, wire));
-  addCityContext(common, groundHeight);
+  const surroundings = createSecunderabadSurroundings(
+    groundHeight,
+    SECUNDERABAD_LAYOUT.sitePadWidth,
+    SECUNDERABAD_LAYOUT.sitePadLength,
+  );
+  common.add(surroundings.group);
 
   const nightLightGroup = new THREE.Group();
   nightLightGroup.name = 'Station floodlight contribution — non-photometric night study';
@@ -1078,6 +1794,7 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
   addPlatformSheds(current, oldRoof, roofDetail, 190, 315);
   addAirConcourse(current, false, concourseSteel, deck, roof);
   addAirConcourse(future, true, concourseSteel, deck, roof);
+  addIntermodalWayfinding(future);
   const buildings = createSecunderabadBuildings();
   current.add(buildings.current);
   future.add(buildings.future);
@@ -1097,6 +1814,9 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
       poolMaterial: platforms.userData.nightPoolMaterial as THREE.MeshBasicMaterial,
       lampMaterial: platforms.userData.platformLampMaterial as THREE.MeshStandardMaterial,
       windowMaterial: buildings.windowMaterial,
+      displayMaterial: platforms.userData.nightDisplayMaterial as THREE.MeshStandardMaterial,
+      streetLampMaterial: surroundings.streetLampMaterial,
+      updateStationClock: platforms.userData.updateStationClock as (hour: number) => void,
     },
   };
 }
