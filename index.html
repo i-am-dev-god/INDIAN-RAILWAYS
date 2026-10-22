@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#d6c4a2" />
+    <meta name="description" content="A research-led 3D Indian Railways simulator, built one realistic scene at a time." />
+    <title>Indian Railways — Deccan Scene Study 01</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" aria-label="Interactive 3D Deccan Plateau ground and sky study"></canvas>
+      <div class="scene-vignette" aria-hidden="true"></div>
+      <div class="grain-overlay" aria-hidden="true"></div>
+
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Indian Railways scene study home">
+          <span class="brand-seal">IR</span>
+          <span class="brand-type">
+            <strong>INDIAN RAILWAYS</strong>
+            <small>3D ROUTE SIMULATOR · DEVELOPMENT BUILD</small>
+          </span>
+        </a>
+        <div class="header-actions">
+          <div class="build-status">
+            <span class="status-light"></span>
+            <span>FIELD STUDY 01</span>
+            <span class="status-divider"></span>
+            <span class="status-wip">WORK IN PROGRESS</span>
+          </div>
+          <button class="focus-toggle" id="focus-toggle" type="button" aria-pressed="false">FOCUS VIEW <span aria-hidden="true">↗</span></button>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="hero-panel" aria-labelledby="hero-title">
+          <p class="eyebrow"><span class="eyebrow-line"></span> ROUTE RESEARCH / TELANGANA</p>
+          <h1 id="hero-title">The Deccan,<br /><em>before the rails.</em></h1>
+          <p class="hero-copy">
+            First foundation: the rocky ground and open afternoon sky around Secunderabad.
+            The railway itself comes in the next build.
+          </p>
+          <div class="location-stamp">
+            <div class="stamp-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 21s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z" stroke="currentColor" stroke-width="1.4" />
+                <circle cx="12" cy="9" r="2.3" stroke="currentColor" stroke-width="1.4" />
+              </svg>
+            </div>
+            <div>
+              <span>SCENE LOCATION</span>
+              <strong>Secunderabad approaches · Telangana</strong>
+            </div>
+          </div>
+          <div class="terrain-tags" aria-label="Landscape details">
+            <span>DECCAN PLATEAU</span>
+            <span>GRANITE OUTCROPS</span>
+            <span>RED EARTH & SCRUB</span>
+          </div>
+          <button class="explore-button" id="explore-button" type="button">
+            <span class="explore-icon" aria-hidden="true">↗</span>
+            <span>EXPLORE THE SCENE</span>
+          </button>
+        </section>
+      </main>
+
+      <aside class="field-note" aria-label="Research note">
+        <div class="note-heading">
+          <span class="note-index">01</span>
+          <span>FIELD NOTE</span>
+          <span class="note-rule"></span>
+        </div>
+        <p>Hard, rocky terrain and pink-grey granite inform this first landscape palette. This is a terrain study—not a finished station or a claim to an exact trackside location.</p>
+        <a href="https://hyderabad.telangana.gov.in/economy/" target="_blank" rel="noreferrer">REFERENCE · HYDERABAD DISTRICT</a>
+      </aside>
+
+      <div class="scene-caption" aria-live="polite">
+        <span class="caption-dot"></span>
+        <span id="scene-caption-text">ENVIRONMENT ONLY · NO TRAIN OR TRACKS YET</span>
+      </div>
+
+      <footer class="bottom-bar">
+        <div class="camera-hint">
+          <span class="bottom-label">LOOK AROUND</span>
+          <span class="hint-item"><kbd>DRAG</kbd> ORBIT</span>
+          <span class="hint-item"><kbd>SCROLL</kbd> ZOOM</span>
+          <button id="reset-view" class="text-button" type="button">RESET VIEW</button>
+        </div>
+
+        <div class="light-study">
+          <div class="light-heading">
+            <span class="bottom-label">LIGHT STUDY</span>
+            <strong id="time-readout">13:00</strong>
+          </div>
+          <input id="time-slider" type="range" min="13" max="20" step="0.05" value="13" aria-label="Adjust the scene light from 1 PM to 8 PM" />
+          <div class="time-labels"><span>13:00 · DEPARTURE LIGHT</span><span>20:00 · EVENING</span></div>
+        </div>
+
+        <div class="phase-indicator">
+          <span class="phase-current"><b>01</b><span>GROUND + SKY</span></span>
+          <span class="phase-next"><b>02</b><span>TRACK STUDY NEXT</span></span>
+        </div>
+      </footer>
+
+      <div class="loading-screen" id="loading-screen" role="status" aria-live="polite">
+        <div class="loading-mark">IR</div>
+        <span>PREPARING THE DECCAN LANDSCAPE</span>
+        <div class="loading-track"><i></i></div>
+      </div>
+      <div class="fallback-message" id="fallback-message" hidden>
+        <div class="fallback-card">
+          <span class="fallback-kicker">SCENE UNAVAILABLE</span>
+          <h2>This browser could not start 3D graphics.</h2>
+          <p>Try a recent desktop browser with hardware acceleration enabled. The project will keep a lightweight fallback as development continues.</p>
+        </div>
+      </div>
+    </div>
+    <noscript>This 3D scene needs JavaScript enabled.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
