@@ -39,6 +39,8 @@ jobs:
           path: dist
 
   deploy:
+    # The repository's GitHub Pages environment currently allows deployments from main only.
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -33,7 +33,7 @@ The repository is configured for GitHub Actions-based Pages deployment. The work
 
 **https://i-am-dev-god.github.io/INDIAN-RAILWAYS/**
 
-Pushes to `main` or the active Arena review branch trigger a deployment. The review branch deployment updates the same public Pages URL, so it is a work-in-progress release rather than a private preview. The Arena live preview is available for checking changes before a public deployment completes.
+The repository's GitHub Pages environment currently permits public deployments from `main` only. Pushes to the active Arena review branch run the build check; merging approved work into `main` publishes it to the same public Pages URL. The Arena live preview is available for reviewing branch changes before they go live.
 
 ## Planned stages
 
