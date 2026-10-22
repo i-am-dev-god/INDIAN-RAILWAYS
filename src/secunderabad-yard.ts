@@ -26,6 +26,8 @@ export const SECUNDERABAD_LAYOUT = {
   railHeight: 0.172,
   platformHeightAboveRail: 0.8,
   serviceTrackIndex: 7,
+  sitePadWidth: 290,
+  sitePadLength: 735,
   platformPairing: 'schematic-island-sequence',
   trackThroats: 'omitted',
 } as const;
@@ -63,7 +65,8 @@ type Segment = { start: THREE.Vector3; end: THREE.Vector3 };
 
 /** Keep the station site free of procedural scrub and rocks. */
 export function isSecunderabadStationSite(x: number, z: number, margin = 0): boolean {
-  return Math.abs(x) <= 140 + margin && Math.abs(z) <= 365 + margin;
+  return Math.abs(x) <= SECUNDERABAD_LAYOUT.sitePadWidth / 2 + margin
+    && Math.abs(z) <= SECUNDERABAD_LAYOUT.sitePadLength / 2 + margin;
 }
 
 function addBoxInstances(
@@ -101,12 +104,13 @@ function addBeamInstances(
   geometry: THREE.CylinderGeometry,
   material: THREE.Material,
   segments: readonly Segment[],
+  castShadow = true,
 ): THREE.InstancedMesh {
   const mesh = new THREE.InstancedMesh(geometry, material, segments.length);
   mesh.name = name;
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = castShadow;
   const dummy = new THREE.Object3D();
   const direction = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
@@ -183,6 +187,26 @@ function makeSignTexture(platformNumber: number, suffix = ''): THREE.CanvasTextu
   return texture;
 }
 
+function makeLightPoolTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create the platform lighting falloff texture.');
+  const gradient = context.createRadialGradient(64, 128, 4, 64, 128, 126);
+  gradient.addColorStop(0, 'rgba(255, 246, 220, 0.52)');
+  gradient.addColorStop(0.32, 'rgba(255, 227, 171, 0.3)');
+  gradient.addColorStop(0.68, 'rgba(255, 214, 151, 0.1)');
+  gradient.addColorStop(1, 'rgba(255, 205, 133, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  return texture;
+}
+
 function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.Material, railMaterial: THREE.Material): THREE.Group {
   const group = new THREE.Group();
   group.name = 'Secunderabad platform-track group — schematic 11-track / 10-platform count';
@@ -233,6 +257,9 @@ function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.M
   sleeperMesh.instanceMatrix.needsUpdate = true;
   if (sleeperMesh.instanceColor) sleeperMesh.instanceColor.needsUpdate = true;
   sleeperMesh.receiveShadow = true;
+  // Thousands of thin sleeper shadows add little at scene scale but are costly
+  // in the directional shadow map; ballast still receives the rail/structure shadows.
+  sleeperMesh.castShadow = false;
   sleeperMesh.computeBoundingSphere();
   group.add(sleeperMesh);
 
@@ -306,13 +333,24 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
   const benchLegMaterial = new THREE.MeshStandardMaterial({ color: '#3b403d', roughness: 0.8, metalness: 0.42 });
   const lightPoleMaterial = new THREE.MeshStandardMaterial({ color: '#858b84', roughness: 0.6, metalness: 0.52 });
   const lightHeadGeometry = new THREE.BoxGeometry(0.62, 0.22, 0.42);
-  const lightHeadMaterial = new THREE.MeshStandardMaterial({ color: '#d6c69f', emissive: '#473820', emissiveIntensity: 0.18, roughness: 0.44 });
+  const jointMaterial = new THREE.MeshStandardMaterial({ color: '#85857d', roughness: 0.98, metalness: 0.01 });
+  const drainMaterial = new THREE.MeshStandardMaterial({ color: '#545b57', roughness: 0.9, metalness: 0.08 });
+  const lightHeadMaterial = new THREE.MeshStandardMaterial({
+    color: '#f0e8d5',
+    emissive: '#ffd28a',
+    emissiveIntensity: 0.08,
+    roughness: 0.42,
+    metalness: 0.08,
+  });
 
   const signPosts: Transform[] = [];
   const benches: Transform[] = [];
   const benchLegs: Transform[] = [];
   const lightPoles: Transform[] = [];
   const lightHeads: Transform[] = [];
+  const lightPools: Transform[] = [];
+  const expansionJoints: Transform[] = [];
+  const platformDrains: Transform[] = [];
 
   for (let platformIndex = 0; platformIndex < SECUNDERABAD_LAYOUT.platformCount; platformIndex += 1) {
     const leftTrack = TRACK_CENTERS[platformIndex];
@@ -325,6 +363,19 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
     platform.receiveShadow = true;
     platform.castShadow = true;
     group.add(platform);
+
+    for (let z = -280; z <= 280; z += 40) {
+      expansionJoints.push({
+        position: new THREE.Vector3(platformCenter, platformHeight + 0.004, z),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+    }
+    for (let z = -294; z <= 294; z += 48) {
+      platformDrains.push({
+        position: new THREE.Vector3(platformCenter + PLATFORM_WIDTH / 2 - 0.42, platformHeight + 0.014, z),
+        scale: new THREE.Vector3(1, 1, 1),
+      });
+    }
 
     const edgeLeft = leftTrack + SECUNDERABAD_LAYOUT.platformEdgeOffset + 0.4;
     const edgeRight = rightTrack - SECUNDERABAD_LAYOUT.platformEdgeOffset - 0.4;
@@ -372,17 +423,73 @@ function makePlatforms(concrete: THREE.Material, tactile: THREE.Material, yellow
       const x = platformCenter;
       lightPoles.push({ position: new THREE.Vector3(x, platformHeight + 2.825, z), scale: new THREE.Vector3(1, 1, 1) });
       lightHeads.push({ position: new THREE.Vector3(x, platformHeight + 5.8, z), scale: new THREE.Vector3(1, 1, 1) });
+      lightPools.push({
+        position: new THREE.Vector3(x, platformHeight + 0.035, z),
+        scale: new THREE.Vector3(1, 1, 1),
+        color: '#ffd59a',
+      });
     }
   }
 
   addBoxInstances(group, 'Platform sign posts', signPostGeometry, signPostMaterial, signPosts);
   addBoxInstances(group, 'Station benches', benchGeometry, benchMaterial, benches);
   addBoxInstances(group, 'Station bench supports', benchLegGeometry, benchLegMaterial, benchLegs);
+  const jointMesh = addBoxInstances(
+    group,
+    'Fine concrete platform expansion joints — schematic spacing',
+    new THREE.BoxGeometry(PLATFORM_WIDTH - 0.7, 0.014, 0.035),
+    jointMaterial,
+    expansionJoints,
+  );
+  jointMesh.castShadow = false;
+  jointMesh.receiveShadow = false;
+  const drainMesh = addBoxInstances(
+    group,
+    'Small platform drain grates — illustrative',
+    new THREE.BoxGeometry(0.16, 0.018, 0.5),
+    drainMaterial,
+    platformDrains,
+  );
+  drainMesh.castShadow = false;
+  drainMesh.receiveShadow = false;
   addBoxInstances(group, 'Platform lighting masts', new THREE.BoxGeometry(1, 1, 1), lightPoleMaterial, lightPoles.map((item) => ({
     ...item,
     scale: new THREE.Vector3(0.12, 5.65, 0.12),
   })));
-  addBoxInstances(group, 'Platform light heads', lightHeadGeometry, lightHeadMaterial, lightHeads);
+  addBoxInstances(group, 'Platform light heads', lightHeadGeometry, lightHeadMaterial, lightHeads).castShadow = false;
+
+  const lightPoolGeometry = new THREE.PlaneGeometry(PLATFORM_WIDTH - 0.45, 82);
+  lightPoolGeometry.rotateX(-Math.PI / 2);
+  const lightPoolMaterial = new THREE.MeshBasicMaterial({
+    map: makeLightPoolTexture(),
+    color: '#ffd9a1',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  });
+  const lightPoolMesh = new THREE.InstancedMesh(lightPoolGeometry, lightPoolMaterial, lightPools.length);
+  lightPoolMesh.name = 'Warm platform light pools — artistic, non-photometric night cue';
+  lightPoolMesh.castShadow = false;
+  lightPoolMesh.receiveShadow = false;
+  lightPoolMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  const lightPoolTransform = new THREE.Object3D();
+  for (let index = 0; index < lightPools.length; index += 1) {
+    const pool = lightPools[index];
+    lightPoolTransform.position.copy(pool.position);
+    lightPoolTransform.scale.copy(pool.scale);
+    lightPoolTransform.updateMatrix();
+    lightPoolMesh.setMatrixAt(index, lightPoolTransform.matrix);
+    if (pool.color) lightPoolMesh.setColorAt(index, new THREE.Color(pool.color));
+  }
+  lightPoolMesh.instanceMatrix.needsUpdate = true;
+  if (lightPoolMesh.instanceColor) lightPoolMesh.instanceColor.needsUpdate = true;
+  lightPoolMesh.computeBoundingSphere();
+  group.add(lightPoolMesh);
+  group.userData.nightPoolMaterial = lightPoolMaterial;
+  group.userData.platformLampMaterial = lightHeadMaterial;
   return group;
 }
 
@@ -555,15 +662,19 @@ function makeOheGroup(steel: THREE.Material, wireMaterial: THREE.Material): THRE
 
   addBoxInstances(group, 'Concrete OHE portal foundations', new THREE.BoxGeometry(1, 1, 1), footingMaterial, footingTransforms);
   addBoxInstances(group, 'Galvanized portal mast base plates', new THREE.BoxGeometry(1, 1, 1), basePlateMaterial, plateTransforms);
-  addBoxInstances(group, 'Portal mast anchor-bolt heads', new THREE.BoxGeometry(1, 1, 1), basePlateMaterial, anchorTransforms);
+  const anchorHeads = addBoxInstances(group, 'Portal mast anchor-bolt heads', new THREE.BoxGeometry(1, 1, 1), basePlateMaterial, anchorTransforms);
+  anchorHeads.castShadow = false;
+  anchorHeads.receiveShadow = false;
   addBeamInstances(group, 'Tapered lattice portal mast chords', new THREE.CylinderGeometry(0.065, 0.085, 1, 6), steel, mastSegments);
   addBeamInstances(group, 'Portal mast lacing and alternating bracing', new THREE.CylinderGeometry(0.036, 0.05, 1, 5), steel, mastBraces);
   addBeamInstances(group, 'Portal truss top and bottom chords', new THREE.CylinderGeometry(0.085, 0.1, 1, 6), steel, portalChords);
   addBeamInstances(group, 'Portal truss verticals and single diagonals', new THREE.CylinderGeometry(0.042, 0.052, 1, 5), steel, portalWeb);
   addBeamInstances(group, 'Portal truss cross-depth ties', new THREE.CylinderGeometry(0.045, 0.052, 1, 5), steel, portalDepthBraces);
-  addBeamInstances(group, 'Mast access ladder rungs', new THREE.CylinderGeometry(0.018, 0.018, 1, 5), steel, ladderRungs);
-  addBeamInstances(group, 'Bonding / earth down-leads on portal legs', new THREE.CylinderGeometry(0.012, 0.012, 1, 5), wireMaterial, cableSegments);
-  addBoxInstances(group, 'OHE mast number / warning plates', new THREE.BoxGeometry(0.58, 0.42, 0.06), markingMaterial, numberPlates);
+  addBeamInstances(group, 'Mast access ladder rungs', new THREE.CylinderGeometry(0.018, 0.018, 1, 5), steel, ladderRungs, false);
+  addBeamInstances(group, 'Bonding / earth down-leads on portal legs', new THREE.CylinderGeometry(0.012, 0.012, 1, 5), wireMaterial, cableSegments, false);
+  const mastPlates = addBoxInstances(group, 'OHE mast number / warning plates', new THREE.BoxGeometry(0.58, 0.42, 0.06), markingMaterial, numberPlates);
+  mastPlates.castShadow = false;
+  mastPlates.receiveShadow = false;
 
   for (const supportZ of supportZs) {
     const supportY = portalZs.includes(supportZ) ? portalBottom - 0.04 : 10.43;
@@ -590,16 +701,20 @@ function makeOheGroup(steel: THREE.Material, wireMaterial: THREE.Material): THRE
       });
     }
   }
-  addBeamInstances(group, 'Portal / concourse OHE suspension rods', new THREE.CylinderGeometry(0.025, 0.03, 1, 5), steel, contactSupports);
-  addBeamInstances(group, 'Contact-wire registration arms at support points', new THREE.CylinderGeometry(0.022, 0.026, 1, 5), steel, registrationArms);
-  addBoxInstances(group, 'Porcelain / composite OHE insulator stacks', new THREE.BoxGeometry(1, 1, 1), porcelainMaterial, insulatorTransforms.map((item) => ({
+  addBeamInstances(group, 'Portal / concourse OHE suspension rods', new THREE.CylinderGeometry(0.025, 0.03, 1, 5), steel, contactSupports, false);
+  addBeamInstances(group, 'Contact-wire registration arms at support points', new THREE.CylinderGeometry(0.022, 0.026, 1, 5), steel, registrationArms, false);
+  const insulators = addBoxInstances(group, 'Porcelain / composite OHE insulator stacks', new THREE.BoxGeometry(1, 1, 1), porcelainMaterial, insulatorTransforms.map((item) => ({
     ...item,
     scale: new THREE.Vector3(0.14, 0.38, 0.14),
   })));
-  addBoxInstances(group, 'Contact-wire clamps and hanger fittings', new THREE.BoxGeometry(1, 1, 1), basePlateMaterial, clampTransforms.map((item) => ({
+  insulators.castShadow = false;
+  insulators.receiveShadow = false;
+  const contactClamps = addBoxInstances(group, 'Contact-wire clamps and hanger fittings', new THREE.BoxGeometry(1, 1, 1), basePlateMaterial, clampTransforms.map((item) => ({
     ...item,
     scale: new THREE.Vector3(0.24, 0.08, 0.18),
   })));
+  contactClamps.castShadow = false;
+  contactClamps.receiveShadow = false;
 
   for (const centerX of TRACK_CENTERS) {
     for (const wireType of ['contact', 'messenger'] as const) {
@@ -623,8 +738,10 @@ function makeOheGroup(steel: THREE.Material, wireMaterial: THREE.Material): THRE
         wireMaterial,
       );
       wire.name = `${wireType} wire — track ${TRACK_CENTERS.indexOf(centerX) + 1}; 5.65 / 7.05 m above rail reference`;
-      wire.castShadow = true;
-      wire.receiveShadow = true;
+      // Thin contact/messenger tubes are visually legible but do not cast
+      // pixel-scale shadows across the station floor.
+      wire.castShadow = false;
+      wire.receiveShadow = false;
       wire.frustumCulled = false;
       group.add(wire);
     }
@@ -643,7 +760,7 @@ function makeOheGroup(steel: THREE.Material, wireMaterial: THREE.Material): THRE
       }
     }
   }
-  addBeamInstances(group, 'Regular wire droppers — up to 9 m schematic spacing', new THREE.CylinderGeometry(0.006, 0.006, 1, 4), wireMaterial, dropperSegments);
+  addBeamInstances(group, 'Regular wire droppers — up to 9 m schematic spacing', new THREE.CylinderGeometry(0.006, 0.006, 1, 4), wireMaterial, dropperSegments, false);
 
   group.userData.system = '25 kV 50 Hz conventional OHE visual study';
   group.userData.contactWireHeightAboveRailMeters = 5.65;
@@ -658,16 +775,26 @@ function makeOheGroup(steel: THREE.Material, wireMaterial: THREE.Material): THRE
   ];
   return group;
 }
-function addPlatformSheds(parent: THREE.Group, material: THREE.Material, firstZ: number, secondZ: number): void {
+function addPlatformSheds(parent: THREE.Group, material: THREE.Material, detailMaterial: THREE.Material, firstZ: number, secondZ: number): void {
   const roofTransforms: Transform[] = [];
   const columnTransforms: Transform[] = [];
-  const roofGeometry = new THREE.BoxGeometry(PLATFORM_WIDTH + 0.6, 0.24, secondZ - firstZ);
+  const ribTransforms: Transform[] = [];
+  const gutterTransforms: Transform[] = [];
+  const roofTrusses: Segment[] = [];
+  const roofLength = secondZ - firstZ;
+  const roofGeometry = new THREE.BoxGeometry(PLATFORM_WIDTH + 0.6, 0.24, roofLength);
   const columnGeometry = new THREE.BoxGeometry(0.28, 6.6, 0.28);
+  const ribGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const gutterGeometry = new THREE.BoxGeometry(1, 1, 1);
   const halfWidth = PLATFORM_WIDTH / 2 - 0.7;
+  const roofMidZ = (firstZ + secondZ) / 2;
+  const trussZs: number[] = [];
+  for (let z = firstZ + 18; z <= secondZ - 18; z += 44) trussZs.push(z);
+
   for (let platformIndex = 0; platformIndex < SECUNDERABAD_LAYOUT.platformCount; platformIndex += 1) {
     const centerX = (TRACK_CENTERS[platformIndex] + TRACK_CENTERS[platformIndex + 1]) / 2;
     roofTransforms.push({
-      position: new THREE.Vector3(centerX, 8.1, (firstZ + secondZ) / 2),
+      position: new THREE.Vector3(centerX, 8.1, roofMidZ),
       scale: new THREE.Vector3(1, 1, 1),
     });
     for (let z = firstZ; z <= secondZ; z += 32) {
@@ -678,9 +805,59 @@ function addPlatformSheds(parent: THREE.Group, material: THREE.Material, firstZ:
         });
       }
     }
+
+    // Shallow standing seams and two edge gutters make the long canopy read as
+    // sheet roofing instead of a featureless block, while keeping all detail
+    // within each platform's clear width.
+    for (let seam = 0; seam < 7; seam += 1) {
+      const x = THREE.MathUtils.lerp(-halfWidth, halfWidth, seam / 6);
+      ribTransforms.push({
+        position: new THREE.Vector3(centerX + x, 8.29, roofMidZ),
+        scale: new THREE.Vector3(0.055, 0.06, roofLength),
+      });
+    }
+    for (const side of [-1, 1]) {
+      gutterTransforms.push({
+        position: new THREE.Vector3(centerX + side * (PLATFORM_WIDTH / 2 + 0.36), 8.1, roofMidZ),
+        scale: new THREE.Vector3(0.18, 0.16, roofLength),
+      });
+    }
+
+    for (const z of trussZs) {
+      const left = centerX - halfWidth;
+      const right = centerX + halfWidth;
+      const apex = centerX;
+      const topY = 7.82;
+      const apexY = 7.88;
+      const tieY = 7.13;
+      roofTrusses.push(
+        { start: new THREE.Vector3(left, topY, z), end: new THREE.Vector3(apex, apexY, z) },
+        { start: new THREE.Vector3(apex, apexY, z), end: new THREE.Vector3(right, topY, z) },
+        { start: new THREE.Vector3(left, tieY, z), end: new THREE.Vector3(right, tieY, z) },
+        { start: new THREE.Vector3(left, tieY, z), end: new THREE.Vector3(apex, apexY, z) },
+        { start: new THREE.Vector3(apex, apexY, z), end: new THREE.Vector3(right, tieY, z) },
+        { start: new THREE.Vector3(apex, tieY, z), end: new THREE.Vector3(apex, apexY, z) },
+      );
+    }
   }
+
   addBoxInstances(parent, 'Existing platform roof sections — schematic retained bays', roofGeometry, material, roofTransforms);
   addBoxInstances(parent, 'Existing platform canopy columns', columnGeometry, material, columnTransforms);
+  const roofSeams = addBoxInstances(parent, 'Fine standing-seam roof ribs — schematic sheet detail', ribGeometry, detailMaterial, ribTransforms);
+  roofSeams.castShadow = false;
+  roofSeams.receiveShadow = false;
+  const gutters = addBoxInstances(parent, 'Platform canopy edge gutters — schematic', gutterGeometry, detailMaterial, gutterTransforms);
+  gutters.castShadow = false;
+  gutters.receiveShadow = false;
+  const roofFrames = addBeamInstances(
+    parent,
+    'Sparse open steel platform-canopy trusses — kept below roof skin',
+    new THREE.CylinderGeometry(0.034, 0.042, 1, 6),
+    detailMaterial,
+    roofTrusses,
+    false,
+  );
+  roofFrames.receiveShadow = false;
 }
 
 function addAirConcourse(parent: THREE.Group, complete: boolean, steel: THREE.Material, deckMaterial: THREE.Material, roofMaterial: THREE.Material): void {
@@ -749,9 +926,42 @@ function addAirConcourse(parent: THREE.Group, complete: boolean, steel: THREE.Ma
   parent.add(group);
 }
 
-function addCityContext(parent: THREE.Group): void {
+function makeCityFacadeTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 192;
+  canvas.height = 192;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create the urban-edge facade texture.');
+  context.fillStyle = '#bcb5a5';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  for (let floor = 0; floor < 6; floor += 1) {
+    const y = floor * 32;
+    context.fillStyle = floor % 2 === 0 ? '#c9c2b2' : '#b1aa99';
+    context.fillRect(0, y, canvas.width, 30);
+    context.fillStyle = '#8b887f';
+    context.fillRect(0, y + 29, canvas.width, 3);
+    for (let bay = 0; bay < 6; bay += 1) {
+      const x = 8 + bay * 31;
+      context.fillStyle = bay % 3 === floor % 3 ? '#536970' : '#384c50';
+      context.fillRect(x, y + 7, 18, 15);
+      context.fillStyle = 'rgba(221, 201, 157, 0.72)';
+      context.fillRect(x, y + 7, 18, 2);
+      context.fillStyle = '#716d63';
+      context.fillRect(x - 1, y + 22, 20, 2);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function addCityContext(parent: THREE.Group, groundHeight: (x: number, z: number) => number): void {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
-  const material = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.94, metalness: 0, flatShading: true });
+  const material = new THREE.MeshStandardMaterial({ map: makeCityFacadeTexture(), roughness: 0.94, metalness: 0, flatShading: true });
   const transforms: Transform[] = [];
   let state = 9_541;
   const random = (): number => {
@@ -768,7 +978,7 @@ function addCityContext(parent: THREE.Group): void {
     const depth = 12 + random() * 30;
     const height = 6 + random() ** 1.8 * 45;
     transforms.push({
-      position: new THREE.Vector3(x, height / 2, z),
+      position: new THREE.Vector3(x, groundHeight(x, z) - STATION_BASE_Y + height / 2, z),
       scale: new THREE.Vector3(width, height, depth),
       rotationY: (random() - 0.5) * 0.18,
       color: palette[Math.floor(random() * palette.length)],
@@ -781,9 +991,16 @@ export type SecunderabadYardParts = {
   common: THREE.Group;
   current: THREE.Group;
   future: THREE.Group;
+  night: {
+    lightGroup: THREE.Group;
+    floodLights: THREE.PointLight[];
+    poolMaterial: THREE.MeshBasicMaterial;
+    lampMaterial: THREE.MeshStandardMaterial;
+    windowMaterial: THREE.MeshStandardMaterial;
+  };
 };
 
-export function createSecunderabadYard(): SecunderabadYardParts {
+export function createSecunderabadYard(groundHeight: (x: number, z: number) => number = () => STATION_BASE_Y): SecunderabadYardParts {
   const common = new THREE.Group();
   common.name = 'Secunderabad Junction — existing platform group (best-evidence schematic)';
   common.position.y = STATION_BASE_Y;
@@ -814,23 +1031,51 @@ export function createSecunderabadYard(): SecunderabadYardParts {
   const rail = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.34, metalness: 0.82 });
   const steel = new THREE.MeshStandardMaterial({ color: '#9ba39b', roughness: 0.7, metalness: 0.18 });
   const oldRoof = new THREE.MeshStandardMaterial({ color: '#b8b8ae', roughness: 0.88, metalness: 0.08 });
+  const roofDetail = new THREE.MeshStandardMaterial({ color: '#78817d', roughness: 0.68, metalness: 0.36 });
   const concourseSteel = new THREE.MeshStandardMaterial({ color: '#b7b9ae', roughness: 0.72, metalness: 0.16 });
   const deck = new THREE.MeshStandardMaterial({ color: '#d5d1c6', roughness: 0.74, metalness: 0.06, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide });
   const roof = new THREE.MeshStandardMaterial({ color: '#e1e1da', roughness: 0.6, metalness: 0.18, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide });
   const wire = new THREE.MeshStandardMaterial({ color: '#b1a68f', roughness: 0.62, metalness: 0.18 });
 
-  const siteGround = new THREE.Mesh(new THREE.BoxGeometry(290, 0.12, 735), asphalt);
-  siteGround.name = 'Station forecourt and rail-site hardstanding';
-  siteGround.position.set(0, -0.08, 0);
+  const siteGround = new THREE.Mesh(
+    new THREE.BoxGeometry(SECUNDERABAD_LAYOUT.sitePadWidth, 0.35, SECUNDERABAD_LAYOUT.sitePadLength),
+    asphalt,
+  );
+  siteGround.name = 'Station forecourt and rail-site hardstanding — raised pad removes terrain overlap';
+  // Top is 10 cm above the station base; the slab bottom meets the flat terrain cut-out.
+  siteGround.position.set(0, -0.075, 0);
   siteGround.receiveShadow = true;
   common.add(siteGround);
   common.add(makeRailGroup(ballast, sleeper, rail));
-  common.add(makePlatforms(concrete, tactile, yellow));
+  const platforms = makePlatforms(concrete, tactile, yellow);
+  common.add(platforms);
   common.add(makeOheGroup(steel, wire));
-  addCityContext(common);
+  addCityContext(common, groundHeight);
 
-  addPlatformSheds(current, oldRoof, -315, -190);
-  addPlatformSheds(current, oldRoof, 190, 315);
+  const nightLightGroup = new THREE.Group();
+  nightLightGroup.name = 'Station floodlight contribution — non-photometric night study';
+  nightLightGroup.visible = false;
+  const floodLights: THREE.PointLight[] = [];
+  const floodlightAnchors = [
+    { platform: 0, z: -220 },
+    { platform: 2, z: -110 },
+    { platform: 4, z: 0 },
+    { platform: 6, z: 110 },
+    { platform: 8, z: 220 },
+  ];
+  for (const anchor of floodlightAnchors) {
+    const x = PLATFORM_CENTERS[anchor.platform] ?? 0;
+    const light = new THREE.PointLight('#ffd8a7', 0, 190, 2);
+    light.name = `Warm station light field — schematic platform ${anchor.platform + 1}`;
+    light.position.set(x, 8.8, anchor.z);
+    light.castShadow = false;
+    floodLights.push(light);
+    nightLightGroup.add(light);
+  }
+  common.add(nightLightGroup);
+
+  addPlatformSheds(current, oldRoof, roofDetail, -315, -190);
+  addPlatformSheds(current, oldRoof, roofDetail, 190, 315);
   addAirConcourse(current, false, concourseSteel, deck, roof);
   addAirConcourse(future, true, concourseSteel, deck, roof);
   const buildings = createSecunderabadBuildings();
@@ -842,5 +1087,16 @@ export function createSecunderabadYard(): SecunderabadYardParts {
   future.userData.timeline = 'Planned post-redevelopment view; not commissioning evidence.';
   future.userData.trackChanges = 'Existing best-evidence 10-platform / 11-track schematic carried forward; no approved yard change verified.';
 
-  return { common, current, future };
+  return {
+    common,
+    current,
+    future,
+    night: {
+      lightGroup: nightLightGroup,
+      floodLights,
+      poolMaterial: platforms.userData.nightPoolMaterial as THREE.MeshBasicMaterial,
+      lampMaterial: platforms.userData.platformLampMaterial as THREE.MeshStandardMaterial,
+      windowMaterial: buildings.windowMaterial,
+    },
+  };
 }

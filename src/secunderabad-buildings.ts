@@ -6,6 +6,8 @@ type BoxTransform = {
   color?: THREE.ColorRepresentation;
 };
 
+type BeamSegment = { start: THREE.Vector3; end: THREE.Vector3 };
+
 type TerminalSide = {
   name: string;
   x: number;
@@ -43,6 +45,37 @@ function addBoxInstances(
   return mesh;
 }
 
+function addBeamInstances(
+  parent: THREE.Group,
+  name: string,
+  material: THREE.Material,
+  segments: readonly BeamSegment[],
+  radius = 0.045,
+): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(radius * 0.88, radius, 1, 6), material, segments.length);
+  mesh.name = name;
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  const transform = new THREE.Object3D();
+  const direction = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    direction.subVectors(segment.end, segment.start);
+    const length = direction.length();
+    transform.position.copy(segment.start).add(segment.end).multiplyScalar(0.5);
+    transform.quaternion.setFromUnitVectors(up, direction.normalize());
+    transform.scale.set(1, length, 1);
+    transform.updateMatrix();
+    mesh.setMatrixAt(index, transform.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  parent.add(mesh);
+  return mesh;
+}
+
 function makeStationSignTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
@@ -65,6 +98,93 @@ function makeStationSignTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+function addConstructionScaffold(parent: THREE.Group, side: TerminalSide, material: THREE.Material, plankMaterial: THREE.Material): void {
+  const segments: BeamSegment[] = [];
+  const planks: BoxTransform[] = [];
+  const floorLevels = [7.95, 10.25, 12.55, 14.85];
+  const topY = 15.5;
+  const sideZ: number[] = [];
+  for (let z = -side.length / 2 - 0.75; z < side.length / 2 + 0.7; z += 14) sideZ.push(z);
+  sideZ.push(side.length / 2 + 0.75);
+
+  for (const face of [-1, 1]) {
+    const x = face * (side.width / 2 + 0.82);
+    for (const z of sideZ) {
+      segments.push({
+        start: new THREE.Vector3(x, 7.75, z),
+        end: new THREE.Vector3(x, topY, z),
+      });
+    }
+    for (const y of floorLevels) {
+      for (let bay = 0; bay < sideZ.length - 1; bay += 1) {
+        const z0 = sideZ[bay];
+        const z1 = sideZ[bay + 1];
+        if (z0 === undefined || z1 === undefined) continue;
+        segments.push({ start: new THREE.Vector3(x, y, z0), end: new THREE.Vector3(x, y, z1) });
+      }
+    }
+    for (let bay = 0; bay < sideZ.length - 1; bay += 1) {
+      const z0 = sideZ[bay];
+      const z1 = sideZ[bay + 1];
+      if (z0 === undefined || z1 === undefined) continue;
+      for (let level = 0; level < floorLevels.length - 1; level += 1) {
+        const y0 = floorLevels[level];
+        const y1 = floorLevels[level + 1];
+        if (y0 === undefined || y1 === undefined) continue;
+        const brace = (bay + level) % 2 === 0
+          ? { start: new THREE.Vector3(x, y0, z0), end: new THREE.Vector3(x, y1, z1) }
+          : { start: new THREE.Vector3(x, y0, z1), end: new THREE.Vector3(x, y1, z0) };
+        segments.push(brace);
+        if (level > 0 && bay % 2 === 0) {
+          planks.push({
+            position: new THREE.Vector3(x, y0 - 0.1, (z0 + z1) / 2),
+            scale: new THREE.Vector3(0.9, 0.14, (z1 - z0) * 0.9),
+          });
+        }
+      }
+    }
+  }
+
+  const endX: number[] = [];
+  for (let x = -side.width / 2 - 0.75; x < side.width / 2 + 0.7; x += 10) endX.push(x);
+  endX.push(side.width / 2 + 0.75);
+  for (const end of [-1, 1]) {
+    const z = end * (side.length / 2 + 0.82);
+    for (const x of endX) {
+      segments.push({
+        start: new THREE.Vector3(x, 7.75, z),
+        end: new THREE.Vector3(x, topY, z),
+      });
+    }
+    for (const y of floorLevels) {
+      for (let bay = 0; bay < endX.length - 1; bay += 1) {
+        const x0 = endX[bay];
+        const x1 = endX[bay + 1];
+        if (x0 === undefined || x1 === undefined) continue;
+        segments.push({ start: new THREE.Vector3(x0, y, z), end: new THREE.Vector3(x1, y, z) });
+      }
+    }
+    for (let bay = 0; bay < endX.length - 1; bay += 1) {
+      const x0 = endX[bay];
+      const x1 = endX[bay + 1];
+      if (x0 === undefined || x1 === undefined) continue;
+      for (let level = 0; level < floorLevels.length - 1; level += 1) {
+        const y0 = floorLevels[level];
+        const y1 = floorLevels[level + 1];
+        if (y0 === undefined || y1 === undefined) continue;
+        segments.push((bay + level) % 2 === 0
+          ? { start: new THREE.Vector3(x0, y0, z), end: new THREE.Vector3(x1, y1, z) }
+          : { start: new THREE.Vector3(x1, y0, z), end: new THREE.Vector3(x0, y1, z) });
+      }
+    }
+  }
+
+  const scaffold = addBeamInstances(parent, 'Temporary construction scaffold — staging illustrative, not dated as-built', material, segments, 0.042);
+  scaffold.userData.location = 'around open upper terminal frames; schematic placement';
+  const workPlatforms = addBoxInstances(parent, 'Scaffold work decks — sparse illustrative planks', new THREE.BoxGeometry(1, 1, 1), plankMaterial, planks);
+  workPlatforms.castShadow = false;
+}
+
 function addTerminalBuilding(
   parent: THREE.Group,
   side: TerminalSide,
@@ -76,6 +196,8 @@ function addTerminalBuilding(
     glass: THREE.Material;
     recess: THREE.Material;
     metal: THREE.Material;
+    scaffold: THREE.Material;
+    scaffoldPlank: THREE.Material;
     canopy: THREE.Material;
     sign: THREE.Material;
     roofPlant: THREE.Material;
@@ -312,6 +434,7 @@ function addTerminalBuilding(
       });
     }
     addBoxInstances(building, 'Sparse top-floor starter bars — construction cue', new THREE.BoxGeometry(1, 1, 1), materials.metal, rebarTransforms);
+    addConstructionScaffold(building, side, materials.scaffold, materials.scaffoldPlank);
   }
 
   building.userData.cladFloorsInThisView = cladFloorCount;
@@ -362,6 +485,7 @@ function addConcourseLinks(parent: THREE.Group, material: THREE.Material): void 
 export type SecunderabadBuildingParts = {
   current: THREE.Group;
   future: THREE.Group;
+  windowMaterial: THREE.MeshStandardMaterial;
 };
 
 export function createSecunderabadBuildings(): SecunderabadBuildingParts {
@@ -374,9 +498,18 @@ export function createSecunderabadBuildings(): SecunderabadBuildingParts {
     wall: new THREE.MeshStandardMaterial({ color: '#d5d0c4', roughness: 0.78, metalness: 0.05 }),
     podium: new THREE.MeshStandardMaterial({ color: '#c9c2b3', roughness: 0.85, metalness: 0.02 }),
     concrete: new THREE.MeshStandardMaterial({ color: '#b7b5ad', roughness: 0.88, metalness: 0.03 }),
-    glass: new THREE.MeshStandardMaterial({ color: '#355963', roughness: 0.24, metalness: 0.38, envMapIntensity: 0.45 }),
+    glass: new THREE.MeshStandardMaterial({
+      color: '#355963',
+      emissive: '#f2b56e',
+      emissiveIntensity: 0,
+      roughness: 0.24,
+      metalness: 0.38,
+      envMapIntensity: 0.45,
+    }),
     recess: new THREE.MeshStandardMaterial({ color: '#23383c', roughness: 0.48, metalness: 0.12 }),
     metal: new THREE.MeshStandardMaterial({ color: '#737e7b', roughness: 0.62, metalness: 0.48 }),
+    scaffold: new THREE.MeshStandardMaterial({ color: '#79827d', roughness: 0.68, metalness: 0.48 }),
+    scaffoldPlank: new THREE.MeshStandardMaterial({ color: '#817866', roughness: 0.92, metalness: 0.02 }),
     canopy: new THREE.MeshStandardMaterial({ color: '#d8d0bc', roughness: 0.52, metalness: 0.15 }),
     sign: new THREE.MeshBasicMaterial({ map: makeStationSignTexture(), side: THREE.DoubleSide }),
     roofPlant: new THREE.MeshStandardMaterial({ color: '#8e9690', roughness: 0.8, metalness: 0.1 }),
@@ -391,7 +524,7 @@ export function createSecunderabadBuildings(): SecunderabadBuildingParts {
 
   const linkMaterial = new THREE.MeshStandardMaterial({ color: '#9ba9a4', roughness: 0.52, metalness: 0.18, transparent: true, opacity: 0.78, depthWrite: false });
   addConcourseLinks(future, linkMaterial);
-  current.userData.caveat = 'Partial cladding/open upper frame is a readable construction-stage assumption, not a dated Secunderabad as-built survey.';
+  current.userData.caveat = 'Partial cladding, open upper frame, scaffold and work platforms are readable construction-stage assumptions, not a dated Secunderabad as-built survey.';
   future.userData.caveat = 'Reported G+3 terminal scope and a lower concourse connection; facade, footprint, placement and finish remain schematic.';
-  return { current, future };
+  return { current, future, windowMaterial: materials.glass };
 }

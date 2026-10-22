@@ -43,6 +43,8 @@ const smoothstep = (edge0: number, edge1: number, value: number): number => {
   const t = clamp01((value - edge0) / (edge1 - edge0));
   return t * t * (3 - 2 * t);
 };
+const STATION_PAD_HALF_WIDTH = SECUNDERABAD_LAYOUT.sitePadWidth / 2;
+const STATION_PAD_HALF_LENGTH = SECUNDERABAD_LAYOUT.sitePadLength / 2;
 
 /** Fast deterministic lattice noise. Periods make generated texture tiles seamless. */
 function latticeHash(x: number, y: number, seed = 1, periodX = 0, periodY = 0): number {
@@ -102,8 +104,11 @@ function terrainHeight(x: number, z: number): number {
   const rolling = fractalNoise(x * 0.012 + 8, z * 0.012 + 28, 4, 39);
   const grain = fractalNoise(x * 0.055 - 17, z * 0.055 + 12, 3, 61);
   const natural = 2.8 + (plateau - 0.5) * 10.5 + (rolling - 0.5) * 3.1 + (grain - 0.5) * 0.48;
-  const stationFootprint = (1 - smoothstep(125, 155, Math.abs(x))) * (1 - smoothstep(365, 410, Math.abs(z)));
-  return THREE.MathUtils.lerp(natural, 2.8, stationFootprint);
+  const stationFootprint = (1 - smoothstep(STATION_PAD_HALF_WIDTH, STATION_PAD_HALF_WIDTH + 35, Math.abs(x)))
+    * (1 - smoothstep(STATION_PAD_HALF_LENGTH, STATION_PAD_HALF_LENGTH + 38, Math.abs(z)));
+  // Keep the terrain safely below the raised station hardstanding; the prior
+  // 2 cm separation was within the depth-buffer precision at the station camera.
+  return THREE.MathUtils.lerp(natural, 2.5, stationFootprint);
 }
 
 function makeGroundMaps(anisotropy: number): { color: THREE.CanvasTexture; height: THREE.CanvasTexture; roughness: THREE.CanvasTexture } {
@@ -218,6 +223,32 @@ function makeCloudTexture(): THREE.CanvasTexture {
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
+  return texture;
+}
+
+function makeMoonTexture(): THREE.CanvasTexture {
+  const canvasTexture = document.createElement('canvas');
+  canvasTexture.width = canvasTexture.height = 128;
+  const context = canvasTexture.getContext('2d');
+  if (!context) throw new Error('Could not create the moon study texture.');
+  context.clearRect(0, 0, 128, 128);
+  const glow = context.createRadialGradient(64, 64, 4, 64, 64, 62);
+  glow.addColorStop(0, '#fffdf5');
+  glow.addColorStop(0.78, '#e3e7e8');
+  glow.addColorStop(0.94, '#c4d0db');
+  glow.addColorStop(1, 'rgba(196, 208, 219, 0)');
+  context.fillStyle = glow;
+  context.beginPath();
+  context.arc(64, 64, 62, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = 'rgba(98, 117, 133, 0.2)';
+  context.beginPath();
+  context.arc(43, 47, 7, 0, Math.PI * 2);
+  context.arc(78, 68, 10, 0, Math.PI * 2);
+  context.arc(54, 87, 5, 0, Math.PI * 2);
+  context.fill();
+  const texture = new THREE.CanvasTexture(canvasTexture);
+  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
@@ -479,6 +510,8 @@ function boot(): void {
   renderer.toneMappingExposure = 1.08;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Static shadow maps are refreshed only when the sun, build state, or train moves.
+  renderer.shadowMap.autoUpdate = false;
   const desktopPixelRatio = 1.65;
   const mobilePixelRatio = 1.25;
   const maxPixelRatio = window.innerWidth < 700 ? mobilePixelRatio : desktopPixelRatio;
@@ -514,7 +547,63 @@ function boot(): void {
   clouds.renderOrder = 1;
   scene.add(clouds);
 
-  const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 5_000);
+  const starPositions: number[] = [];
+  const starColors: number[] = [];
+  let starSeed = 31_407;
+  const starRandom = (): number => {
+    starSeed = (Math.imul(starSeed, 1_664_525) + 1_013_904_223) >>> 0;
+    return starSeed / 4_294_967_296;
+  };
+  for (let index = 0; index < 300; index += 1) {
+    const azimuth = starRandom() * Math.PI * 2;
+    const vertical = 0.08 + starRandom() * 0.92;
+    const horizontal = Math.sqrt(1 - vertical * vertical);
+    const radius = 2_100;
+    starPositions.push(Math.cos(azimuth) * horizontal * radius, vertical * radius, Math.sin(azimuth) * horizontal * radius);
+    const temperature = starRandom();
+    starColors.push(0.7 + temperature * 0.3, 0.78 + temperature * 0.2, 0.9 + temperature * 0.1);
+  }
+  const starGeometry = new THREE.BufferGeometry();
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+  starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
+  const starMaterial = new THREE.PointsMaterial({
+    color: '#ffffff',
+    size: 2.1,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+  });
+  const stars = new THREE.Points(starGeometry, starMaterial);
+  stars.name = 'Faint Deccan night-sky star field';
+  stars.frustumCulled = false;
+  stars.renderOrder = 3;
+  stars.visible = false;
+  scene.add(stars);
+
+  const moonMaterial = new THREE.SpriteMaterial({
+    map: makeMoonTexture(),
+    color: '#e4edf7',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const moon = new THREE.Sprite(moonMaterial);
+  moon.name = 'Moon — illustrative night-sky cue';
+  moon.scale.set(22, 22, 1);
+  moon.renderOrder = 3;
+  moon.visible = false;
+  scene.add(moon);
+  const moonlight = new THREE.DirectionalLight('#aec9e8', 0);
+  moonlight.name = 'Cool moonlight fill — artistic, not photometric';
+  moonlight.castShadow = false;
+  scene.add(moonlight);
+
+  const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.5, 5_000);
   camera.position.set(174, 165, 420);
   scene.add(camera);
 
@@ -586,7 +675,7 @@ function boot(): void {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  const yard = createSecunderabadYard();
+  const yard = createSecunderabadYard(terrainHeight);
   yard.future.visible = false;
   scene.add(yard.common, yard.current, yard.future);
   let activeStationView: SecunderabadView = 'current';
@@ -685,6 +774,7 @@ function boot(): void {
     throttleControl.setAttribute('aria-valuetext', `${stepped}% power`);
     throttleLever.rotation.z = THREE.MathUtils.lerp(-0.32, 0.32, stepped / 100);
     updateDriveReadout();
+    requestRender();
   }
 
   function setBrake(value: number): void {
@@ -695,12 +785,15 @@ function boot(): void {
     brakeControl.setAttribute('aria-valuetext', `${stepped}% brake`);
     brakeLever.rotation.z = THREE.MathUtils.lerp(-0.32, 0.32, stepped / 100);
     updateDriveReadout();
+    requestRender();
   }
 
   function resetDrivingState(): void {
     driving.atTrackEnd = false;
     driving.speedMetersPerSecond = 0;
     train.position.z = trainStartPositionZ;
+    sun.shadow.needsUpdate = true;
+    requestRender();
     setThrottle(0);
     setBrake(0);
     if (activeCameraView !== 'station') setCameraView(activeCameraView);
@@ -713,7 +806,24 @@ function boot(): void {
   const nightFog = new THREE.Color('#26394a');
   const warmSun = new THREE.Color('#f2a56e');
   const daylightSun = new THREE.Color('#fff1d1');
+  const dayHemisphereSky = new THREE.Color('#dce8ef');
+  const nightHemisphereSky = new THREE.Color('#687d98');
+  const dayHemisphereGround = new THREE.Color('#9d7952');
+  const nightHemisphereGround = new THREE.Color('#393e4b');
+  const cloudWhite = new THREE.Color('#fff9f0');
   const sunDirection = new THREE.Vector3();
+  let nightFactor = 0;
+  let framePending = false;
+  let lastFrameTimestamp = 0;
+  let renderFrame: (timestamp: number) => void = () => undefined;
+
+  function requestRender(): void {
+    if (framePending || document.visibilityState === 'hidden') return;
+    framePending = true;
+    window.requestAnimationFrame((timestamp) => renderFrame(timestamp));
+  }
+
+  controls.addEventListener('change', requestRender);
 
   function setTimeOfDay(rawHour: number): void {
     const hour = THREE.MathUtils.clamp(rawHour, 13, 20);
@@ -728,11 +838,28 @@ function boot(): void {
     skyUniforms['turbidity'].value = 3.2 + (1 - smoothstep(-4, 48, elevationDegrees)) * 3.8;
     sun.position.copy(sunDirection).multiplyScalar(150);
     const daylight = smoothstep(-5, 23, elevationDegrees);
-    sun.intensity = 0.12 + daylight * 2.65;
+    nightFactor = smoothstep(17.7, 19.35, hour);
+    sun.intensity = 0.045 + daylight * 2.75;
     sun.color.copy(warmSun).lerp(daylightSun, smoothstep(6, 48, elevationDegrees));
-    hemisphere.intensity = 0.22 + daylight * 1.06;
-    clouds.material.color.copy(warmSun).lerp(new THREE.Color('#fff9f0'), daylight);
-    clouds.material.opacity = 0.18 + daylight * 0.28;
+    hemisphere.intensity = 0.3 + daylight * 0.92;
+    hemisphere.color.copy(nightHemisphereSky).lerp(dayHemisphereSky, 1 - nightFactor);
+    hemisphere.groundColor.copy(nightHemisphereGround).lerp(dayHemisphereGround, 1 - nightFactor);
+    clouds.material.color.copy(warmSun).lerp(cloudWhite, daylight);
+    clouds.material.opacity = 0.05 + daylight * 0.31;
+
+    moonlight.position.copy(sunDirection).negate().multiplyScalar(150);
+    moonlight.intensity = nightFactor * 0.16;
+    moonlight.visible = nightFactor > 0.02;
+    stars.visible = nightFactor > 0.02;
+    starMaterial.opacity = nightFactor * 0.88;
+    moon.visible = nightFactor > 0.06;
+    moonMaterial.opacity = nightFactor * 0.94;
+    yard.night.lightGroup.visible = nightFactor > 0.02;
+    for (const light of yard.night.floodLights) light.intensity = nightFactor * 6_000;
+    yard.night.poolMaterial.opacity = nightFactor * 0.58;
+    yard.night.lampMaterial.emissiveIntensity = 0.08 + nightFactor * 2.2;
+    yard.night.windowMaterial.emissiveIntensity = nightFactor * 0.68;
+    sun.shadow.needsUpdate = true;
 
     if (elevationDegrees > 22) fogColor.copy(dayFog);
     else if (elevationDegrees > -2) fogColor.copy(duskFog).lerp(dayFog, smoothstep(-2, 22, elevationDegrees));
@@ -742,12 +869,13 @@ function boot(): void {
     const hours = Math.floor(hour);
     const minutes = Math.round((hour - hours) * 60);
     timeReadout.textContent = `${String(hours).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-    const lightPhase = hour < 17.2 ? 'HIGH AFTERNOON' : hour < 18.6 ? 'EVENING LIGHT' : 'DUSK LIGHT';
+    const lightPhase = hour < 17.2 ? 'HIGH AFTERNOON' : hour < 18.6 ? 'EVENING LIGHT' : hour < 19.35 ? 'DUSK LIGHT' : 'NIGHT STUDY';
     const stateCaption = activeStationView === 'current'
       ? 'CURRENT · WORKS ILLUSTRATIVE'
       : 'PLANNED · NO VERIFIED YARD CHANGE';
     const cameraCaption = activeCameraView === 'cab' ? 'CAB · DRIVE STUDY' : activeCameraView === 'exterior' ? '20102 · EXTERIOR' : 'STATION VIEW';
     sceneCaption.textContent = `${stateCaption} · ${cameraCaption} · ${lightPhase} · ${timeReadout.textContent}`;
+    requestRender();
   }
 
   function setStationView(view: SecunderabadView): void {
@@ -854,7 +982,9 @@ function boot(): void {
   });
   window.addEventListener('blur', releaseEmergencyBrake);
   document.addEventListener('visibilitychange', () => {
+    lastFrameTimestamp = 0;
     if (document.visibilityState === 'hidden') releaseEmergencyBrake();
+    else requestRender();
   });
 
   let guestSession: GuestSessionTracker | null = null;
@@ -894,12 +1024,24 @@ function boot(): void {
     const pixelRatioLimit = width < 700 ? mobilePixelRatio : desktopPixelRatio;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelRatioLimit));
     renderer.setSize(width, height, false);
+    requestRender();
   }
   window.addEventListener('resize', resize, { passive: true });
 
-  const clock = new THREE.Clock();
-  function animate(): void {
-    const delta = Math.min(clock.getDelta(), 0.05);
+  const previousCameraPosition = new THREE.Vector3();
+  const previousControlTarget = new THREE.Vector3();
+  renderFrame = (timestamp: number): void => {
+    framePending = false;
+    if (document.visibilityState === 'hidden') {
+      lastFrameTimestamp = 0;
+      return;
+    }
+
+    const delta = lastFrameTimestamp === 0 ? 0 : Math.min((timestamp - lastFrameTimestamp) / 1_000, 0.05);
+    lastFrameTimestamp = timestamp;
+    previousCameraPosition.copy(camera.position);
+    previousControlTarget.copy(controls.target);
+
     if (delta > 0) {
       const previousSpeed = driving.speedMetersPerSecond;
       const traction = (driving.throttle / 100) * 0.55;
@@ -916,6 +1058,7 @@ function boot(): void {
       const remaining = Math.max(0, maxTrainCenterZ - train.position.z);
       const travelled = Math.min(distance, remaining);
       train.position.z += travelled;
+      if (travelled > 0) sun.shadow.needsUpdate = true;
       if (remaining <= distance && !driving.atTrackEnd) {
         driving.atTrackEnd = true;
         driving.speedMetersPerSecond = 0;
@@ -925,15 +1068,19 @@ function boot(): void {
         camera.position.z += travelled;
         controls.target.z += travelled;
       }
-
       updateDriveReadout();
-      // Damping gives the camera a small amount of momentum without an always-running scene animation.
-      controls.update();
     }
+
+    controls.update();
+    const controlsStillSettling = camera.position.distanceToSquared(previousCameraPosition) > 1e-10
+      || controls.target.distanceToSquared(previousControlTarget) > 1e-10;
+    stars.position.copy(camera.position);
+    moon.position.copy(camera.position).addScaledVector(sunDirection, -1_800);
     renderer.render(scene, camera);
-    window.requestAnimationFrame(animate);
-  }
-  animate();
+
+    if (controlsStillSettling || driving.throttle > 0 || driving.speedMetersPerSecond > 0.0001) requestRender();
+  };
+  requestRender();
 
   window.setTimeout(() => loadingScreen.classList.add('is-hidden'), 360);
 }
