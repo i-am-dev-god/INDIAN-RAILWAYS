@@ -4,16 +4,17 @@ on:
   push:
     branches:
       - main
-      - arena/51a94434-indian-railways
+      - 'arena/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: github-pages
+  group: github-pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -39,8 +40,12 @@ jobs:
           path: dist
 
   deploy:
-    # The repository's GitHub Pages environment currently allows deployments from main only.
+    # Only main is allowed to publish to the repository's GitHub Pages environment.
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
