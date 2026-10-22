@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#d6c4a2" />
-    <meta name="description" content="A research-led 3D Indian Railways simulator, built one realistic scene at a time." />
-    <title>Indian Railways — Deccan Scene Study 01</title>
+    <meta name="description" content="A research-led 3D study of Secunderabad Junction, station redevelopment, overhead equipment and Vande Bharat 20102." />
+    <title>Indian Railways — Secunderabad &amp; Vande Bharat 20102 Study</title>
   </head>
   <body>
     <div id="app">
-      <canvas id="scene" aria-label="Interactive 3D Deccan Plateau ground and sky study"></canvas>
+      <canvas id="scene" aria-label="Interactive 3D study of Secunderabad Junction, detailed schematic OHE and the eight-coach Vande Bharat 20102"></canvas>
       <div class="scene-vignette" aria-hidden="true"></div>
       <div class="grain-overlay" aria-hidden="true"></div>
 
@@ -24,9 +24,17 @@
         <div class="header-actions">
           <div class="build-status">
             <span class="status-light"></span>
-            <span>FIELD STUDY 01</span>
+            <span>FIELD STUDY 04</span>
             <span class="status-divider"></span>
             <span class="status-wip">WORK IN PROGRESS</span>
+          </div>
+          <div class="station-state-toggle" role="group" aria-label="Secunderabad station timeline">
+            <button type="button" data-station-view="current" aria-pressed="true" class="is-active">CURRENT</button>
+            <button type="button" data-station-view="future" aria-pressed="false">PLANNED</button>
+          </div>
+          <div class="guest-status" id="guest-status" role="status" aria-live="polite" hidden>
+            <span class="guest-status-dot"></span>
+            <span id="guest-status-label">GUEST · SAVED IN THIS BROWSER</span>
           </div>
           <button class="focus-toggle" id="focus-toggle" type="button" aria-pressed="false">FOCUS VIEW <span aria-hidden="true">↗</span></button>
         </div>
@@ -34,11 +42,10 @@
 
       <main id="top">
         <section class="hero-panel" aria-labelledby="hero-title">
-          <p class="eyebrow"><span class="eyebrow-line"></span> ROUTE RESEARCH / TELANGANA</p>
-          <h1 id="hero-title">The Deccan,<br /><em>before the rails.</em></h1>
+          <p class="eyebrow"><span class="eyebrow-line"></span> ROUTE RESEARCH / SECUNDERABAD</p>
+          <h1 id="hero-title">A junction,<br /><em>in transition.</em></h1>
           <p class="hero-copy">
-            First foundation: the rocky ground and open afternoon sky around Secunderabad.
-            The railway itself comes in the next build.
+            Explore a Secunderabad redevelopment study and the eight-coach Vande Bharat 20102. Yard geometry and construction details stay visibly schematic.
           </p>
           <div class="location-stamp">
             <div class="stamp-icon" aria-hidden="true">
@@ -49,35 +56,81 @@
             </div>
             <div>
               <span>SCENE LOCATION</span>
-              <strong>Secunderabad approaches · Telangana</strong>
+              <strong>Secunderabad Junction · Hyderabad</strong>
             </div>
           </div>
-          <div class="terrain-tags" aria-label="Landscape details">
-            <span>DECCAN PLATEAU</span>
-            <span>GRANITE OUTCROPS</span>
-            <span>RED EARTH & SCRUB</span>
+          <div class="terrain-tags" aria-label="Station study details">
+            <span>10 PLATFORMS</span>
+            <span>11 TRACKS · SCHEMATIC</span>
+            <span>25 kV OHE · SCHEMATIC</span>
+            <span>20102 · 8 COACHES</span>
           </div>
-          <button class="explore-button" id="explore-button" type="button">
-            <span class="explore-icon" aria-hidden="true">↗</span>
-            <span>EXPLORE THE SCENE</span>
-          </button>
+          <div class="play-cta">
+            <button class="play-button" id="play-now-button" type="button" aria-label="Play now as a guest">
+              <span class="play-icon" aria-hidden="true">▶</span>
+              <span>PLAY NOW</span>
+            </button>
+            <span class="guest-disclosure">GUEST MODE · LOCAL SAVE WHEN AVAILABLE</span>
+          </div>
         </section>
       </main>
 
       <aside class="field-note" aria-label="Research note">
         <div class="note-heading">
-          <span class="note-index">01</span>
+          <span class="note-index">04</span>
           <span>FIELD NOTE</span>
           <span class="note-rule"></span>
         </div>
-        <p>Hard, rocky terrain and pink-grey granite inform this first landscape palette. This is a terrain study—not a finished station or a claim to an exact trackside location.</p>
-        <a href="https://hyderabad.telangana.gov.in/economy/" target="_blank" rel="noreferrer">REFERENCE · HYDERABAD DISTRICT</a>
+        <p class="station-state-title" id="station-state-title">CURRENT · REDEVELOPMENT WORKS REPORTED</p>
+        <p id="station-state-detail">G+3 north/south terminal scope and a two-level concourse are reported. Building footprints, facade, construction stage and OHE details are schematic; exact yard geometry remains unverified.</p>
+        <div class="field-note-sources" aria-label="Field note sources">
+          <a href="https://scr.indianrailways.gov.in/view_section.jsp?fontColor=black&amp;backgroundColor=LIGHTSTEELBLUE&amp;lang=0&amp;id=0%2C1%2C291%2C357%2C2096%2C2244" target="_blank" rel="noreferrer">SCR · 10 PLATFORMS</a>
+          <a href="https://www.financialexpress.com/business/railways-upgradation-of-secunderabad-railway-station-is-going-at-a-swift-pace-ministry-of-railways-shares-details-of-work-done-3561398/" target="_blank" rel="noreferrer">FE · 10 PLATFORMS / 11 TRACKS</a>
+          <a href="https://scr.indianrailways.gov.in/view_detail.jsp?lang=0&amp;dcd=21164&amp;id=0,5,268" target="_blank" rel="noreferrer">SCR · REDEVELOPMENT SCOPE</a>
+          <a href="https://www.thehansindia.com/news/cities/hyderabad/secbad-railway-station-to-don-a-new-look-soon-766866" target="_blank" rel="noreferrer">HANS INDIA · G+3 BUILDINGS</a>
+          <a href="https://newsonair.gov.in/telangana-vande-bharat-train-service-between-nagpur-and-secunderabad-to-be-launched-today/" target="_blank" rel="noreferrer">NEWSONAIR · 20102 ROUTE</a>
+          <a href="https://www.thehindu.com/news/national/telangana/nagpur-secbad-nagpur-vb-express-to-have-eight-coaches-only/article69220085.ece" target="_blank" rel="noreferrer">THE HINDU · 8-COACH RAKE</a>
+        </div>
       </aside>
 
       <div class="scene-caption" aria-live="polite">
         <span class="caption-dot"></span>
-        <span id="scene-caption-text">ENVIRONMENT ONLY · NO TRAIN OR TRACKS YET</span>
+        <span id="scene-caption-text">CURRENT · STATION VIEW · HIGH AFTERNOON · 13:00</span>
       </div>
+
+      <aside class="drive-panel" id="drive-panel" aria-label="Train driving controls" hidden>
+        <div class="drive-panel-heading">
+          <div>
+            <span class="drive-kicker">STRAIGHT-LINE DRIVE STUDY</span>
+            <div class="drive-speed"><strong id="train-speed-value">0</strong><span>km/h</span></div>
+          </div>
+          <span class="drive-status" id="drive-status" aria-live="polite">STOPPED</span>
+        </div>
+        <div class="drive-levers" role="group" aria-label="Separate train controls">
+          <label class="drive-lever throttle-lever" for="throttle-control">
+            <span class="drive-lever-name">THROTTLE</span>
+            <div class="drive-slider-well throttle-well">
+              <input id="throttle-control" type="range" min="0" max="100" step="5" value="0" aria-label="Throttle power">
+            </div>
+            <output id="throttle-output" for="throttle-control">0%</output>
+          </label>
+          <label class="drive-lever brake-lever" for="brake-control">
+            <span class="drive-lever-name">BRAKE</span>
+            <div class="drive-slider-well brake-well">
+              <input id="brake-control" type="range" min="0" max="100" step="5" value="0" aria-label="Brake application">
+            </div>
+            <output id="brake-output" for="brake-control">0%</output>
+          </label>
+        </div>
+        <div class="drive-shortcuts" aria-label="Keyboard controls">
+          <span><kbd>W</kbd>/<kbd>↑</kbd> THROTTLE +</span>
+          <span><kbd>S</kbd>/<kbd>↓</kbd> THROTTLE −</span>
+          <span><kbd>[</kbd>/<kbd>]</kbd> BRAKE −/+</span>
+          <span><kbd>SPACE</kbd> HOLD BRAKE</span>
+        </div>
+        <span class="drive-limit-note">60 km/h prototype cap · no route/signal model</span>
+        <button class="drive-reset" id="reset-train" type="button">RESET TO START</button>
+      </aside>
 
       <footer class="bottom-bar">
         <div class="camera-hint">
@@ -85,6 +138,11 @@
           <span class="hint-item"><kbd>DRAG</kbd> ORBIT</span>
           <span class="hint-item"><kbd>SCROLL</kbd> ZOOM</span>
           <button id="reset-view" class="text-button" type="button">RESET VIEW</button>
+          <div class="camera-view-toggle" role="group" aria-label="Select scene or train camera view">
+            <button type="button" data-camera-view="station" aria-pressed="true" class="is-active">STATION</button>
+            <button type="button" data-camera-view="exterior" aria-pressed="false">EXTERIOR</button>
+            <button type="button" data-camera-view="cab" aria-pressed="false">CAB</button>
+          </div>
         </div>
 
         <div class="light-study">
@@ -97,14 +155,14 @@
         </div>
 
         <div class="phase-indicator">
-          <span class="phase-current"><b>01</b><span>GROUND + SKY</span></span>
-          <span class="phase-next"><b>02</b><span>TRACK STUDY NEXT</span></span>
+          <span class="phase-current"><b>04</b><span>STATION + 20102</span></span>
+          <span class="phase-next"><b>05</b><span>ROUTE DRIVE NEXT</span></span>
         </div>
       </footer>
 
       <div class="loading-screen" id="loading-screen" role="status" aria-live="polite">
         <div class="loading-mark">IR</div>
-        <span>PREPARING THE DECCAN LANDSCAPE</span>
+        <span>PREPARING SECUNDERABAD + 20102 STUDY</span>
         <div class="loading-track"><i></i></div>
       </div>
       <div class="fallback-message" id="fallback-message" hidden>
