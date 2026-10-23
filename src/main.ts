@@ -913,10 +913,10 @@ function boot(): void {
     }
     if (view === 'current') {
       stationStateTitle.textContent = 'CURRENT · REDEVELOPMENT WORKS REPORTED';
-      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Platform amenities, forecourt access, building footprints, partial cladding and cardinal placement are illustrative. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are not a station drawing.';
+      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Metro skywalk construction is reported, but its route is not drawn without a verified plan. Platform amenities, forecourt access, building footprints, partial cladding and cardinal placement are illustrative. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are not a station drawing.';
     } else {
       stationStateTitle.textContent = 'PLANNED · POST-REDEVELOPMENT STUDY';
-      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; representative lift/escalator cores and generic Metro/Bus panels are illustrative, not exact placements. The same schematic track group is carried forward as “no verified yard change.” The drive study has no route, signals or station stops.';
+      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; representative lift/escalator cores and generic Metro/Bus panels are illustrative, not exact placements. Reported skywalk work is not drawn without an inspectable alignment. The same schematic track group is carried forward as “no verified yard change.” The drive study has no route, signals or station stops.';
     }
     setTimeOfDay(Number(timeSlider.value));
   }
