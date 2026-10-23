@@ -626,7 +626,7 @@ function boot(): void {
 
   const sun = new THREE.DirectionalLight('#ffe2b2', 2.8);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1_536, 1_536);
+  sun.shadow.mapSize.set(2_048, 2_048);
   sun.shadow.camera.left = -260;
   sun.shadow.camera.right = 260;
   sun.shadow.camera.top = 260;
@@ -635,13 +635,16 @@ function boot(): void {
   sun.shadow.camera.far = 720;
   sun.shadow.bias = -0.00018;
   sun.shadow.normalBias = 0.025;
-  sun.shadow.radius = 3;
+  sun.shadow.radius = 2;
   scene.add(sun);
 
-  scene.fog = new THREE.Fog('#c7b18f', 340, 1_250);
+  // The larger urban horizon falls away gradually so roads and Metro massing
+  // do not stop at the previous terrain edge. Fog is visual depth, not a
+  // performance shortcut or a claim about local atmospheric measurements.
+  scene.fog = new THREE.Fog('#c7b18f', 520, 1_750);
 
-  const terrainSize = 1_280;
-  const terrainSegments = window.innerWidth < 700 ? 128 : 188;
+  const terrainSize = 3_600;
+  const terrainSegments = window.innerWidth < 700 ? 220 : 320;
   const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
   terrainGeometry.rotateX(-Math.PI / 2);
   const terrainPositions = terrainGeometry.attributes.position;
@@ -805,7 +808,7 @@ function boot(): void {
   const duskFog = new THREE.Color('#9a7772');
   const nightFog = new THREE.Color('#26394a');
   const warmSun = new THREE.Color('#f2a56e');
-  const daylightSun = new THREE.Color('#fff1d1');
+  const daylightSun = new THREE.Color('#ffdda8');
   const dayHemisphereSky = new THREE.Color('#dce8ef');
   const nightHemisphereSky = new THREE.Color('#687d98');
   const dayHemisphereGround = new THREE.Color('#9d7952');
@@ -814,22 +817,40 @@ function boot(): void {
   const sunDirection = new THREE.Vector3();
   let nightFactor = 0;
   let framePending = false;
+  let renderTimeout: number | undefined;
   let lastFrameTimestamp = 0;
   let renderFrame: (timestamp: number) => void = () => undefined;
 
-  function requestRender(): void {
-    if (framePending || document.visibilityState === 'hidden') return;
+  function requestRender(delayMs = 0): void {
+    if (document.visibilityState === 'hidden') return;
+    if (framePending) {
+      if (delayMs > 0 || renderTimeout === undefined) return;
+      window.clearTimeout(renderTimeout);
+      renderTimeout = undefined;
+      framePending = false;
+    }
     framePending = true;
-    window.requestAnimationFrame((timestamp) => renderFrame(timestamp));
+    const scheduleFrame = (): void => {
+      renderTimeout = undefined;
+      window.requestAnimationFrame((timestamp) => renderFrame(timestamp));
+    };
+    if (delayMs > 0) renderTimeout = window.setTimeout(scheduleFrame, delayMs);
+    else scheduleFrame();
   }
 
-  controls.addEventListener('change', requestRender);
+  controls.addEventListener('change', () => requestRender());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      lastFrameTimestamp = 0;
+      requestRender();
+    }
+  });
 
   function setTimeOfDay(rawHour: number): void {
     const hour = THREE.MathUtils.clamp(rawHour, 13, 20);
     const phase = (hour - 6) / 12;
     const elevationDegrees = 63 * Math.sin(phase * Math.PI);
-    const azimuthDegrees = 184 + (hour - 13) * 15;
+    const azimuthDegrees = 315 + (hour - 13) * 10;
     const phi = THREE.MathUtils.degToRad(90 - elevationDegrees);
     const theta = THREE.MathUtils.degToRad(azimuthDegrees);
     sunDirection.setFromSphericalCoords(1, phi, theta).normalize();
@@ -892,10 +913,10 @@ function boot(): void {
     }
     if (view === 'current') {
       stationStateTitle.textContent = 'CURRENT · REDEVELOPMENT WORKS REPORTED';
-      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Platform amenities, forecourt access, building footprints, partial cladding and cardinal placement are illustrative. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are not a station drawing.';
+      stationStateDetail.textContent = 'Reported scope includes G+3 north/south terminal buildings and a two-level concourse. Metro skywalk construction is reported, but its route is not drawn without a verified plan. Platform amenities, forecourt access, building footprints, partial cladding and cardinal placement are illustrative. The 10-platform / 11-road sequence, 11.4 m spacing and 640 m extent are assumptions; OHE supports are not a station drawing.';
     } else {
       stationStateTitle.textContent = 'PLANNED · POST-REDEVELOPMENT STUDY';
-      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; representative lift/escalator cores and generic Metro/Bus panels are illustrative, not exact placements. The same schematic track group is carried forward as “no verified yard change.” The drive study has no route, signals or station stops.';
+      stationStateDetail.textContent = 'Conceptual G+3 terminals, air-concourse links and through-roof are massing only; representative lift/escalator cores and generic Metro/Bus panels are illustrative, not exact placements. Reported skywalk work is not drawn without an inspectable alignment. The same schematic track group is carried forward as “no verified yard change.” The drive study has no route, signals or station stops.';
     }
     setTimeOfDay(Number(timeSlider.value));
   }
@@ -1042,8 +1063,10 @@ function boot(): void {
       return;
     }
 
-    const delta = lastFrameTimestamp === 0 ? 0 : Math.min((timestamp - lastFrameTimestamp) / 1_000, 0.05);
+    const frameDelta = lastFrameTimestamp === 0 ? 0 : Math.max(0, (timestamp - lastFrameTimestamp) / 1_000);
+    const delta = Math.min(frameDelta, 0.05);
     lastFrameTimestamp = timestamp;
+    const ambientTrafficActive = yard.updateAmbientTraffic(Math.min(frameDelta, 0.2));
     previousCameraPosition.copy(camera.position);
     previousControlTarget.copy(controls.target);
 
@@ -1082,12 +1105,12 @@ function boot(): void {
     stars.position.copy(camera.position);
     moon.position.copy(camera.position).addScaledVector(sunDirection, -1_800);
     renderer.render(scene, camera);
+    if (!loadingScreen.classList.contains('is-hidden')) loadingScreen.classList.add('is-hidden');
 
     if (controlsStillSettling || driving.throttle > 0 || driving.speedMetersPerSecond > 0.0001) requestRender();
+    else if (ambientTrafficActive) requestRender(85);
   };
   requestRender();
-
-  window.setTimeout(() => loadingScreen.classList.add('is-hidden'), 360);
 }
 
 boot();

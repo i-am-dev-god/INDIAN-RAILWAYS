@@ -222,15 +222,146 @@ function makeNoiseTexture(base: string, seed: number, colorSpace = THREE.SRGBCol
   return texture;
 }
 
+function makeBallastTextures(): { albedo: THREE.CanvasTexture; bump: THREE.CanvasTexture } {
+  const size = 512;
+  const albedoCanvas = document.createElement('canvas');
+  const bumpCanvas = document.createElement('canvas');
+  albedoCanvas.width = albedoCanvas.height = size;
+  bumpCanvas.width = bumpCanvas.height = size;
+  const albedoContext = albedoCanvas.getContext('2d', { willReadFrequently: true });
+  const bumpContext = bumpCanvas.getContext('2d', { willReadFrequently: true });
+  if (!albedoContext || !bumpContext) throw new Error('Could not create the station ballast textures.');
+
+  let state = 6_731_409;
+  const random = (): number => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 4_294_967_296;
+  };
+  const albedo = albedoContext.createImageData(size, size);
+  const bump = bumpContext.createImageData(size, size);
+  for (let index = 0; index < albedo.data.length; index += 4) {
+    const grain = Math.round(random() * 24 - 12);
+    const value = 99 + grain;
+    albedo.data[index] = value + 1;
+    albedo.data[index + 1] = value;
+    albedo.data[index + 2] = value - 3;
+    albedo.data[index + 3] = 255;
+    const relief = 126 + Math.round(random() * 22 - 11);
+    bump.data[index] = bump.data[index + 1] = bump.data[index + 2] = relief;
+    bump.data[index + 3] = 255;
+  }
+  albedoContext.putImageData(albedo, 0, 0);
+  bumpContext.putImageData(bump, 0, 0);
+
+  const stoneColors = ['#545650', '#686960', '#77746c', '#817b70', '#625d55', '#898477', '#595f5d'];
+  const facets: Array<{ points: Array<[number, number]>; color: string; height: number }> = [];
+  for (let stone = 0; stone < 4_200; stone += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const radius = 2.2 + random() * 4.4;
+    const sides = 4 + Math.floor(random() * 4);
+    const points: Array<[number, number]> = [];
+    for (let point = 0; point < sides; point += 1) {
+      const angle = (point / sides) * Math.PI * 2 + random() * 0.12;
+      const pointRadius = radius * (0.62 + random() * 0.5);
+      points.push([x + Math.cos(angle) * pointRadius, y + Math.sin(angle) * pointRadius]);
+    }
+    facets.push({
+      points,
+      color: stoneColors[Math.floor(random() * stoneColors.length)] ?? '#686960',
+      height: 94 + Math.round(random() * 112),
+    });
+  }
+  for (const facet of facets) {
+    for (const context of [albedoContext, bumpContext]) {
+      context.beginPath();
+      facet.points.forEach(([x, y], index) => {
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fillStyle = context === albedoContext ? facet.color : `rgb(${facet.height},${facet.height},${facet.height})`;
+      context.globalAlpha = context === albedoContext ? 0.82 : 0.9;
+      context.fill();
+    }
+    const [first, second] = facet.points;
+    if (first && second) {
+      albedoContext.globalAlpha = 0.2;
+      albedoContext.strokeStyle = '#d0c9b8';
+      albedoContext.lineWidth = 0.65;
+      albedoContext.beginPath();
+      albedoContext.moveTo(first[0], first[1]);
+      albedoContext.lineTo(second[0], second[1]);
+      albedoContext.stroke();
+    }
+  }
+  albedoContext.globalAlpha = 1;
+  bumpContext.globalAlpha = 1;
+
+  const albedoTexture = new THREE.CanvasTexture(albedoCanvas);
+  albedoTexture.colorSpace = THREE.SRGBColorSpace;
+  albedoTexture.wrapS = albedoTexture.wrapT = THREE.RepeatWrapping;
+  albedoTexture.anisotropy = 4;
+  albedoTexture.generateMipmaps = true;
+  albedoTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  const bumpTexture = new THREE.CanvasTexture(bumpCanvas);
+  bumpTexture.colorSpace = THREE.NoColorSpace;
+  bumpTexture.wrapS = bumpTexture.wrapT = THREE.RepeatWrapping;
+  bumpTexture.anisotropy = 4;
+  bumpTexture.generateMipmaps = true;
+  bumpTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  return { albedo: albedoTexture, bump: bumpTexture };
+}
+
+function makeBallastBedGeometry(trackCenter: number, trackIndex: number): THREE.BufferGeometry {
+  const halfLength = SECUNDERABAD_LAYOUT.trackLength / 2;
+  const segments = Math.ceil(SECUNDERABAD_LAYOUT.trackLength / 4);
+  const crossSection = [
+    { x: -2.4, height: 0 },
+    { x: -1.68, height: SECUNDERABAD_LAYOUT.ballastDepth },
+    { x: 1.68, height: SECUNDERABAD_LAYOUT.ballastDepth },
+    { x: 2.4, height: 0 },
+  ];
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let row = 0; row <= segments; row += 1) {
+    const z = THREE.MathUtils.lerp(-halfLength, halfLength, row / segments);
+    const surfaceRelief = Math.sin(z * 0.17 + trackIndex * 1.9) * 0.004
+      + Math.sin(z * 0.061 + trackIndex * 3.1) * 0.005;
+    for (const point of crossSection) {
+      const relief = point.height > 0 ? surfaceRelief : 0;
+      positions.push(trackCenter + point.x, point.height + relief, z);
+      uvs.push((point.x + 2.4) / 1.8, (z + halfLength) / 2.6);
+    }
+  }
+  for (let row = 0; row < segments; row += 1) {
+    for (let column = 0; column < crossSection.length - 1; column += 1) {
+      const a = row * crossSection.length + column;
+      const b = a + 1;
+      const d = (row + 1) * crossSection.length + column;
+      const c = d + 1;
+      indices.push(a, c, b, a, d, c);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function makeSignTexture(platformNumber: number, suffix = ''): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 144;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Could not create a station platform sign.');
-  context.fillStyle = '#153e39';
+  context.fillStyle = '#123f67';
   context.fillRect(0, 0, canvas.width, canvas.height);
-  context.strokeStyle = '#e5c776';
+  context.strokeStyle = '#edc65d';
   context.lineWidth = 8;
   context.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
   context.fillStyle = '#fbf4df';
@@ -238,6 +369,7 @@ function makeSignTexture(platformNumber: number, suffix = ''): THREE.CanvasTextu
   context.textBaseline = 'middle';
   context.font = '600 38px Arial, sans-serif';
   context.fillText('SECUNDERABAD JN', canvas.width / 2, 48);
+  context.fillStyle = '#f2cc63';
   context.font = '700 44px Arial, sans-serif';
   context.fillText(`PLATFORM ${platformNumber}${suffix}`, canvas.width / 2, 100);
   const texture = new THREE.CanvasTexture(canvas);
@@ -372,21 +504,23 @@ function makeClockFace(): { texture: THREE.CanvasTexture; update: (hour: number)
   return { texture, update };
 }
 
-function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.Material, railMaterial: THREE.Material): THREE.Group {
+function makeRailGroup(
+  ballastMaterial: THREE.Material,
+  sleeperMaterial: THREE.Material,
+  railMaterial: THREE.Material,
+  railHeadMaterial: THREE.Material,
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'Secunderabad platform-track group — schematic 11-track / 10-platform count';
 
-  const ballastGeometry = new THREE.BoxGeometry(4.8, SECUNDERABAD_LAYOUT.ballastDepth, SECUNDERABAD_LAYOUT.trackLength);
-  const ballastMeshes: THREE.Mesh[] = [];
   for (let index = 0; index < TRACK_CENTERS.length; index += 1) {
-    const ballast = new THREE.Mesh(ballastGeometry, ballastMaterial);
+    const ballast = new THREE.Mesh(makeBallastBedGeometry(TRACK_CENTERS[index] ?? 0, index), ballastMaterial);
     ballast.name = index === SECUNDERABAD_LAYOUT.serviceTrackIndex
-      ? 'Reported MMTS/service road between Platforms 7 and 8 (schematic position)'
-      : `Track-bed ${index + 1}`;
-    ballast.position.set(TRACK_CENTERS[index], SECUNDERABAD_LAYOUT.ballastDepth / 2, 0);
+      ? 'Reported MMTS/service road — schematic location; angular ballast shoulders'
+      : `Angled crushed-stone track bed ${index + 1} — small formation relief, not surveyed`;
     ballast.receiveShadow = true;
+    ballast.castShadow = false;
     group.add(ballast);
-    ballastMeshes.push(ballast);
   }
 
   const sleeperCount = Math.floor(SECUNDERABAD_LAYOUT.trackLength / SECUNDERABAD_LAYOUT.sleeperSpacing) + 1;
@@ -430,13 +564,19 @@ function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.M
 
   const railTransforms: Transform[] = [];
   const railLength = SECUNDERABAD_LAYOUT.trackLength;
+  // Restrained body-tone changes suggest service grime/oxide; the running-head
+  // ribbon below stays cool and polished rather than inheriting that patina.
+  const railBodyTones = ['#858c88', '#8c8880', '#858a84', '#90867a', '#848983', '#89877f', '#858b86'];
+  const railHeadTones = ['#d1d8d6', '#cbd3d1', '#d5dad7', '#c8d0ce'];
   for (let trackIndex = 0; trackIndex < TRACK_CENTERS.length; trackIndex += 1) {
     const centerX = TRACK_CENTERS[trackIndex];
     for (const side of [-1, 1]) {
       railTransforms.push({
         position: new THREE.Vector3(centerX + side * GAUGE_HALF, SLEEPER_TOP_Y + SECUNDERABAD_LAYOUT.railHeight / 2, 0),
         scale: new THREE.Vector3(1, 1, 1),
-        color: trackIndex === SECUNDERABAD_LAYOUT.serviceTrackIndex ? '#737c79' : '#858c88',
+        color: trackIndex === SECUNDERABAD_LAYOUT.serviceTrackIndex
+          ? '#737c79'
+          : railBodyTones[(trackIndex + (side > 0 ? 1 : 0)) % railBodyTones.length] ?? '#858c88',
       });
     }
   }
@@ -461,6 +601,27 @@ function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.M
   railMesh.computeBoundingSphere();
   group.add(railMesh);
 
+  const polishedHeadTransforms = railTransforms.map((rail, index) => ({
+    position: new THREE.Vector3(
+      rail.position.x,
+      SLEEPER_TOP_Y + SECUNDERABAD_LAYOUT.railHeight + 0.0025,
+      0,
+    ),
+    scale: new THREE.Vector3(1, 1, 1),
+    color: Math.floor(index / 2) === SECUNDERABAD_LAYOUT.serviceTrackIndex
+      ? '#c2cbc9'
+      : railHeadTones[Math.floor(index / 2) % railHeadTones.length] ?? '#d1d8d6',
+  }));
+  const polishedHeads = addBoxInstances(
+    group,
+    'Narrow polished running surfaces on the 11 schematic platform roads',
+    new THREE.BoxGeometry(0.061, 0.005, railLength),
+    railHeadMaterial,
+    polishedHeadTransforms,
+  );
+  polishedHeads.castShadow = false;
+  polishedHeads.receiveShadow = false;
+
   group.userData.trackCentersMeters = [...TRACK_CENTERS];
   group.userData.trackGaugeMeters = SECUNDERABAD_LAYOUT.trackGauge;
   group.userData.trackCenterSpacingMeters = SECUNDERABAD_LAYOUT.trackSpacing;
@@ -468,7 +629,6 @@ function makeRailGroup(ballastMaterial: THREE.Material, sleeperMaterial: THREE.M
   group.userData.trackCount = SECUNDERABAD_LAYOUT.trackCount;
   group.userData.platformCount = SECUNDERABAD_LAYOUT.platformCount;
   group.userData.assumptions = ['schematic platform-to-road pairing', 'throats omitted', 'not a working yard diagram'];
-  void ballastMeshes;
   return group;
 }
 
@@ -1439,6 +1599,175 @@ function addPlatformSheds(parent: THREE.Group, material: THREE.Material, detailM
   roofFrames.receiveShadow = false;
 }
 
+function makeFootbridgeSignTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 768;
+  canvas.height = 144;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create a station footbridge sign.');
+  context.fillStyle = '#123f67';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#edc65d';
+  context.lineWidth = 8;
+  context.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = '#fff6df';
+  context.font = '700 38px Arial, sans-serif';
+  context.fillText('SECUNDERABAD JUNCTION', canvas.width / 2, 49);
+  context.fillStyle = '#f2cc63';
+  context.font = '600 25px Arial, sans-serif';
+  context.fillText('PLATFORM ACCESS', canvas.width / 2, 101);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function addRepresentativeFootbridges(parent: THREE.Group): void {
+  const group = new THREE.Group();
+  group.name = 'Representative platform footbridges and stairs — illustrative count and placement';
+  group.userData.sourceBasis = 'SCR station profile reports three FOBs; redevelopment releases describe additional bridge work.';
+  group.userData.caveat = 'Two visual FOB studies only; not an as-built count, location plan, structural drawing, or confirmed clearance design.';
+
+  const deckTop = 10.9;
+  const deckThickness = 0.42;
+  const deckBottom = deckTop - deckThickness;
+  const bridgeDepth = 4.8;
+  const halfSpan = TRACK_SPAN_X / 2 + 14;
+  const span = halfSpan * 2;
+  const bridgeZs = [-130, 130];
+  const platformDeck = new THREE.MeshStandardMaterial({ color: '#a9b0aa', roughness: 0.78, metalness: 0.18 });
+  const stairSurface = new THREE.MeshStandardMaterial({ color: '#aaa99e', roughness: 0.9, metalness: 0.02 });
+  const supportMaterial = new THREE.MeshStandardMaterial({ color: '#7e8c87', roughness: 0.7, metalness: 0.35 });
+  const handrailMaterial = new THREE.MeshStandardMaterial({ color: '#485854', roughness: 0.55, metalness: 0.52 });
+  const signageMaterial = new THREE.MeshBasicMaterial({ map: makeFootbridgeSignTexture(), side: THREE.DoubleSide, toneMapped: false });
+  const deckTransforms: Transform[] = [];
+  const supportTransforms: Transform[] = [];
+  const girderTransforms: Transform[] = [];
+  const stairTreads: Transform[] = [];
+  const footbridgeRails: Segment[] = [];
+  const footbridgePosts: Segment[] = [];
+  const stairRails: Segment[] = [];
+  const stairStringers: Segment[] = [];
+  const stairBalusters: Segment[] = [];
+  const signTransforms: Transform[] = [];
+  const stairWidth = 2.2;
+  const stepTread = 0.3;
+  const stepCount = Math.ceil((deckTop - PLATFORM_TOP_Y) / 0.18);
+  const stepRise = (deckTop - PLATFORM_TOP_Y) / stepCount;
+  const supportHeight = deckBottom - PLATFORM_TOP_Y;
+
+  for (const bridgeZ of bridgeZs) {
+    deckTransforms.push({
+      position: new THREE.Vector3(0, deckTop - deckThickness / 2, bridgeZ),
+      scale: new THREE.Vector3(1, 1, 1),
+    });
+    for (const side of [-1, 1]) {
+      const z = bridgeZ + side * (bridgeDepth / 2 - 0.18);
+      girderTransforms.push({
+        position: new THREE.Vector3(0, deckBottom - 0.18, z),
+        scale: new THREE.Vector3(span, 0.38, 0.32),
+      });
+      footbridgeRails.push(
+        { start: new THREE.Vector3(-halfSpan, deckTop + 1.02, z), end: new THREE.Vector3(halfSpan, deckTop + 1.02, z) },
+        { start: new THREE.Vector3(-halfSpan, deckTop + 0.46, z), end: new THREE.Vector3(halfSpan, deckTop + 0.46, z) },
+      );
+      for (let x = -halfSpan; x <= halfSpan + 0.01; x += 4.5) {
+        footbridgePosts.push({
+          start: new THREE.Vector3(x, deckTop + 0.08, z),
+          end: new THREE.Vector3(x, deckTop + 1.02, z),
+        });
+      }
+    }
+
+    for (const centerX of PLATFORM_CENTERS) {
+      const edgeX = PLATFORM_WIDTH / 2 - 0.42;
+      for (const xSide of [-1, 1]) {
+        for (const zSide of [-1, 1]) {
+          supportTransforms.push({
+            position: new THREE.Vector3(centerX + xSide * edgeX, PLATFORM_TOP_Y + supportHeight / 2, bridgeZ + zSide * 1.75),
+            scale: new THREE.Vector3(0.3, supportHeight, 0.3),
+          });
+        }
+      }
+      girderTransforms.push({
+        position: new THREE.Vector3(centerX, deckBottom - 0.18, bridgeZ),
+        scale: new THREE.Vector3(PLATFORM_WIDTH - 0.55, 0.38, 0.34),
+      });
+
+      const direction = Math.sign(bridgeZ);
+      const startZ = bridgeZ - direction * (stepCount * stepTread + 0.3);
+      for (let step = 0; step < stepCount; step += 1) {
+        stairTreads.push({
+          position: new THREE.Vector3(
+            centerX,
+            PLATFORM_TOP_Y + stepRise * (step + 0.5),
+            startZ + direction * (step + 0.5) * stepTread,
+          ),
+          scale: new THREE.Vector3(1, stepRise, 1),
+        });
+        if (step % 5 === 0 || step === stepCount - 1) {
+          const z = startZ + direction * (step + 0.5) * stepTread;
+          const y = PLATFORM_TOP_Y + stepRise * (step + 1);
+          for (const side of [-1, 1]) {
+            const x = centerX + side * (stairWidth / 2);
+            stairBalusters.push({
+              start: new THREE.Vector3(x, y, z),
+              end: new THREE.Vector3(x, y + 0.94, z),
+            });
+          }
+        }
+      }
+      for (const side of [-1, 1]) {
+        const x = centerX + side * (stairWidth / 2);
+        const endZ = bridgeZ - direction * 0.35;
+        stairRails.push({
+          start: new THREE.Vector3(x, PLATFORM_TOP_Y + 0.94, startZ),
+          end: new THREE.Vector3(x, deckTop + 0.94, endZ),
+        });
+        stairStringers.push({
+          start: new THREE.Vector3(x - side * 0.08, PLATFORM_TOP_Y - 0.12, startZ),
+          end: new THREE.Vector3(x - side * 0.08, deckTop - 0.12, endZ),
+        });
+      }
+    }
+
+    for (const side of [-1, 1]) {
+      signTransforms.push({
+        position: new THREE.Vector3(side * (halfSpan - 4.2), deckTop + 2.05, bridgeZ),
+        scale: new THREE.Vector3(1, 1, 1),
+        rotationY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
+      });
+    }
+  }
+
+  const bridgeDecks = addBoxInstances(
+    group,
+    'Open-deck cross-platform FOB walking surfaces — two representative spans',
+    new THREE.BoxGeometry(span, deckThickness, bridgeDepth),
+    platformDeck,
+    deckTransforms,
+  );
+  bridgeDecks.castShadow = true;
+  addBoxInstances(group, 'Platform-edge FOB piers and cross-girders — kept outside rail clearances', new THREE.BoxGeometry(1, 1, 1), supportMaterial, supportTransforms).castShadow = false;
+  addBoxInstances(group, 'FOB longitudinal and platform cross-girders', new THREE.BoxGeometry(1, 1, 1), supportMaterial, girderTransforms).castShadow = false;
+  const treads = addBoxInstances(group, 'Individual stair treads descending to each schematic platform', new THREE.BoxGeometry(stairWidth, 1, stepTread), stairSurface, stairTreads);
+  treads.castShadow = false;
+  treads.receiveShadow = true;
+  addBeamInstances(group, 'FOB continuous handrails and balusters', new THREE.CylinderGeometry(0.035, 0.04, 1, 6), handrailMaterial, footbridgeRails, false);
+  addBeamInstances(group, 'FOB vertical railing posts', new THREE.CylinderGeometry(0.026, 0.03, 1, 5), handrailMaterial, footbridgePosts, false);
+  addBeamInstances(group, 'Stair handrails at each platform approach', new THREE.CylinderGeometry(0.032, 0.036, 1, 6), handrailMaterial, stairRails, false);
+  addBeamInstances(group, 'Stair stringers and side supports', new THREE.CylinderGeometry(0.07, 0.08, 1, 6), supportMaterial, stairStringers, false);
+  addBeamInstances(group, 'Stair balusters', new THREE.CylinderGeometry(0.022, 0.025, 1, 5), handrailMaterial, stairBalusters, false);
+  const signs = addPlaneInstances(group, 'Blue-and-yellow Secunderabad FOB identification boards — generic IR-style', new THREE.PlaneGeometry(7.2, 1.35), signageMaterial, signTransforms);
+  signs.castShadow = false;
+  group.userData.bridgeCount = bridgeZs.length;
+  group.userData.platformStairFlights = bridgeZs.length * SECUNDERABAD_LAYOUT.platformCount;
+  group.userData.designClearance = 'Illustrative deck is above the schematic OHE; no site clearance drawing was used.';
+  parent.add(group);
+}
+
 function makeLiftSignTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -1698,6 +2027,7 @@ export type SecunderabadYardParts = {
   common: THREE.Group;
   current: THREE.Group;
   future: THREE.Group;
+  updateAmbientTraffic: (deltaSeconds: number) => boolean;
   night: {
     lightGroup: THREE.Group;
     floodLights: THREE.PointLight[];
@@ -1726,20 +2056,28 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
 
   const asphaltTexture = makeNoiseTexture('#565c59', 14);
   asphaltTexture.repeat.set(5, 30);
-  const ballastTexture = makeNoiseTexture('#66645d', 21);
-  ballastTexture.repeat.set(3, 180);
+  const ballastTextures = makeBallastTextures();
   const concreteTexture = makeNoiseTexture('#aaa79c', 31);
   concreteTexture.repeat.set(2, 80);
   const tactileTexture = makeNoiseTexture('#b5b0a2', 48);
   tactileTexture.repeat.set(1, 90);
   const asphalt = new THREE.MeshStandardMaterial({ color: '#ddd9cd', map: asphaltTexture, roughness: 0.92, metalness: 0.01 });
-  const ballast = new THREE.MeshStandardMaterial({ color: '#d8d4c9', map: ballastTexture, roughness: 0.98, metalness: 0 });
+  const ballast = new THREE.MeshStandardMaterial({
+    color: '#c9c3b6',
+    map: ballastTextures.albedo,
+    bumpMap: ballastTextures.bump,
+    bumpScale: 0.035,
+    roughness: 0.98,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
   const concrete = new THREE.MeshStandardMaterial({ color: '#ffffff', map: concreteTexture, roughness: 0.94, metalness: 0 });
   const tactile = new THREE.MeshStandardMaterial({ color: '#c4bba3', map: tactileTexture, roughness: 0.99, metalness: 0 });
   const yellow = new THREE.MeshStandardMaterial({ color: '#e3c75c', roughness: 0.84, metalness: 0.02 });
   const sleeper = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.95, metalness: 0 });
   const rail = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.34, metalness: 0.82 });
-  const steel = new THREE.MeshStandardMaterial({ color: '#9ba39b', roughness: 0.7, metalness: 0.18 });
+  const railHead = new THREE.MeshStandardMaterial({ color: '#d1d8d6', roughness: 0.19, metalness: 0.88 });
+  const steel = new THREE.MeshStandardMaterial({ color: '#89938d', roughness: 0.66, metalness: 0.32 });
   const oldRoof = new THREE.MeshStandardMaterial({ color: '#b8b8ae', roughness: 0.88, metalness: 0.08 });
   const roofDetail = new THREE.MeshStandardMaterial({ color: '#78817d', roughness: 0.68, metalness: 0.36 });
   const concourseSteel = new THREE.MeshStandardMaterial({ color: '#b7b9ae', roughness: 0.72, metalness: 0.16 });
@@ -1757,10 +2095,11 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
   siteGround.receiveShadow = true;
   common.add(siteGround);
   common.add(makeStationForecourt());
-  common.add(makeRailGroup(ballast, sleeper, rail));
+  common.add(makeRailGroup(ballast, sleeper, rail, railHead));
   const platforms = makePlatforms(concrete, tactile, yellow);
   common.add(platforms);
   common.add(makeOheGroup(steel, wire));
+  addRepresentativeFootbridges(common);
   const surroundings = createSecunderabadSurroundings(
     groundHeight,
     SECUNDERABAD_LAYOUT.sitePadWidth,
@@ -1808,6 +2147,7 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
     common,
     current,
     future,
+    updateAmbientTraffic: surroundings.updateAmbientTraffic,
     night: {
       lightGroup: nightLightGroup,
       floodLights,
