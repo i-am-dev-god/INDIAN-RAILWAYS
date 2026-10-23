@@ -2027,6 +2027,7 @@ export type SecunderabadYardParts = {
   common: THREE.Group;
   current: THREE.Group;
   future: THREE.Group;
+  updateAmbientTraffic: (deltaSeconds: number) => boolean;
   night: {
     lightGroup: THREE.Group;
     floodLights: THREE.PointLight[];
@@ -2146,6 +2147,7 @@ export function createSecunderabadYard(groundHeight: (x: number, z: number) => n
     common,
     current,
     future,
+    updateAmbientTraffic: surroundings.updateAmbientTraffic,
     night: {
       lightGroup: nightLightGroup,
       floodLights,

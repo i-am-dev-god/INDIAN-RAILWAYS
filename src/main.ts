@@ -638,12 +638,13 @@ function boot(): void {
   sun.shadow.radius = 2;
   scene.add(sun);
 
-  // Longer falloff keeps distant buildings softly atmospheric without washing
-  // out the station foreground or treating browser fog as a performance test.
-  scene.fog = new THREE.Fog('#c7b18f', 480, 1_450);
+  // The larger urban horizon falls away gradually so roads and Metro massing
+  // do not stop at the previous terrain edge. Fog is visual depth, not a
+  // performance shortcut or a claim about local atmospheric measurements.
+  scene.fog = new THREE.Fog('#c7b18f', 520, 1_750);
 
-  const terrainSize = 1_280;
-  const terrainSegments = window.innerWidth < 700 ? 128 : 188;
+  const terrainSize = 3_600;
+  const terrainSegments = window.innerWidth < 700 ? 220 : 320;
   const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
   terrainGeometry.rotateX(-Math.PI / 2);
   const terrainPositions = terrainGeometry.attributes.position;
@@ -816,16 +817,34 @@ function boot(): void {
   const sunDirection = new THREE.Vector3();
   let nightFactor = 0;
   let framePending = false;
+  let renderTimeout: number | undefined;
   let lastFrameTimestamp = 0;
   let renderFrame: (timestamp: number) => void = () => undefined;
 
-  function requestRender(): void {
-    if (framePending || document.visibilityState === 'hidden') return;
+  function requestRender(delayMs = 0): void {
+    if (document.visibilityState === 'hidden') return;
+    if (framePending) {
+      if (delayMs > 0 || renderTimeout === undefined) return;
+      window.clearTimeout(renderTimeout);
+      renderTimeout = undefined;
+      framePending = false;
+    }
     framePending = true;
-    window.requestAnimationFrame((timestamp) => renderFrame(timestamp));
+    const scheduleFrame = (): void => {
+      renderTimeout = undefined;
+      window.requestAnimationFrame((timestamp) => renderFrame(timestamp));
+    };
+    if (delayMs > 0) renderTimeout = window.setTimeout(scheduleFrame, delayMs);
+    else scheduleFrame();
   }
 
-  controls.addEventListener('change', requestRender);
+  controls.addEventListener('change', () => requestRender());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      lastFrameTimestamp = 0;
+      requestRender();
+    }
+  });
 
   function setTimeOfDay(rawHour: number): void {
     const hour = THREE.MathUtils.clamp(rawHour, 13, 20);
@@ -1044,8 +1063,10 @@ function boot(): void {
       return;
     }
 
-    const delta = lastFrameTimestamp === 0 ? 0 : Math.min((timestamp - lastFrameTimestamp) / 1_000, 0.05);
+    const frameDelta = lastFrameTimestamp === 0 ? 0 : Math.max(0, (timestamp - lastFrameTimestamp) / 1_000);
+    const delta = Math.min(frameDelta, 0.05);
     lastFrameTimestamp = timestamp;
+    const ambientTrafficActive = yard.updateAmbientTraffic(Math.min(frameDelta, 0.2));
     previousCameraPosition.copy(camera.position);
     previousControlTarget.copy(controls.target);
 
@@ -1084,12 +1105,12 @@ function boot(): void {
     stars.position.copy(camera.position);
     moon.position.copy(camera.position).addScaledVector(sunDirection, -1_800);
     renderer.render(scene, camera);
+    if (!loadingScreen.classList.contains('is-hidden')) loadingScreen.classList.add('is-hidden');
 
     if (controlsStillSettling || driving.throttle > 0 || driving.speedMetersPerSecond > 0.0001) requestRender();
+    else if (ambientTrafficActive) requestRender(85);
   };
   requestRender();
-
-  window.setTimeout(() => loadingScreen.classList.add('is-hidden'), 360);
 }
 
 boot();

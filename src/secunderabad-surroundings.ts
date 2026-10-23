@@ -157,6 +157,242 @@ function addBeamInstances(
   return mesh;
 }
 
+type PedestrianPlacement = {
+  x: number;
+  z: number;
+  baseY: number;
+  rotationY?: number;
+  clothing: THREE.ColorRepresentation;
+  skin?: THREE.ColorRepresentation;
+};
+
+function addPedestrians(parent: THREE.Group, name: string, people: readonly PedestrianPlacement[]): void {
+  if (people.length === 0) return;
+  const torsos: BoxPlacement[] = [];
+  const heads: BoxPlacement[] = [];
+  const legs: BoxPlacement[] = [];
+  const arms: BoxPlacement[] = [];
+  const bags: BoxPlacement[] = [];
+  const skinTones = ['#8c5c43', '#a97150', '#bb855d', '#d0a078'];
+  for (let index = 0; index < people.length; index += 1) {
+    const person = people[index];
+    if (!person) continue;
+    const rotationY = person.rotationY ?? 0;
+    torsos.push({
+      position: new THREE.Vector3(person.x, person.baseY + 1.06, person.z),
+      scale: new THREE.Vector3(1, 1, 1),
+      rotationY,
+      color: person.clothing,
+    });
+    heads.push({
+      position: new THREE.Vector3(person.x, person.baseY + 1.72, person.z),
+      scale: new THREE.Vector3(1, 1, 1),
+      rotationY,
+      color: person.skin ?? skinTones[index % skinTones.length],
+    });
+    for (const side of [-1, 1]) {
+      legs.push({
+        position: new THREE.Vector3(person.x + side * 0.12, person.baseY + 0.29, person.z),
+        scale: new THREE.Vector3(1, 1, 1),
+        rotationY,
+        color: index % 4 === 0 ? '#62584b' : '#353b3a',
+      });
+      arms.push({
+        position: new THREE.Vector3(person.x + side * 0.26, person.baseY + 0.98, person.z),
+        scale: new THREE.Vector3(1, 1, 1),
+        rotationY,
+        color: person.clothing,
+      });
+    }
+    if (index % 4 === 1 || index % 4 === 3) {
+      bags.push({
+        position: new THREE.Vector3(person.x, person.baseY + 1.03, person.z + 0.22),
+        scale: new THREE.Vector3(0.32, 0.4, 0.18),
+        rotationY,
+        color: index % 2 === 0 ? '#62513f' : '#4b5c57',
+      });
+    }
+  }
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.98, flatShading: true });
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.98, flatShading: true });
+  const clothMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.98, flatShading: true });
+  const bodyMesh = addBoxInstances(parent, `${name} — low-poly clothing silhouettes`, new THREE.CapsuleGeometry(0.2, 0.68, 3, 7), bodyMaterial, torsos);
+  bodyMesh.castShadow = false;
+  bodyMesh.receiveShadow = false;
+  const headMesh = addBoxInstances(parent, `${name} — simple head silhouettes`, new THREE.SphereGeometry(0.15, 8, 6), skinMaterial, heads);
+  headMesh.castShadow = false;
+  headMesh.receiveShadow = false;
+  const legMesh = addBoxInstances(parent, `${name} — paired legs`, new THREE.BoxGeometry(0.14, 0.56, 0.15), clothMaterial, legs);
+  legMesh.castShadow = false;
+  legMesh.receiveShadow = false;
+  const armMesh = addBoxInstances(parent, `${name} — paired arms`, new THREE.BoxGeometry(0.12, 0.62, 0.14), clothMaterial, arms);
+  armMesh.castShadow = false;
+  armMesh.receiveShadow = false;
+  const bagMesh = addBoxInstances(parent, `${name} — a few travel bags`, new THREE.BoxGeometry(1, 1, 1), clothMaterial, bags);
+  bagMesh.castShadow = false;
+  bagMesh.receiveShadow = false;
+}
+
+function createRoadTraffic(
+  parent: THREE.Group,
+  groundHeight: GroundHeight,
+  roadRunX: number,
+  roadLengthZ: number,
+): (deltaSeconds: number) => boolean {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lanes = [
+    { x: -roadRunX - 3, direction: 1 },
+    { x: -roadRunX + 3, direction: -1 },
+    { x: roadRunX - 3, direction: 1 },
+    { x: roadRunX + 3, direction: -1 },
+  ];
+  const vehicleCount = 12;
+  const travelStart = -roadLengthZ + 78;
+  const travelEnd = roadLengthZ - 78;
+  const travelLength = travelEnd - travelStart;
+  const vehicles = Array.from({ length: vehicleCount }, (_, index) => {
+    const laneIndex = index % lanes.length;
+    const laneOrder = Math.floor(index / lanes.length);
+    const auto = index === 3 || index === 8 || index === 10;
+    return {
+      laneIndex,
+      laneOrder,
+      auto,
+      speed: 2.7 + ((index * 17) % 13) * 0.16,
+      bodyColor: auto ? ['#c6ad42', '#44746f', '#b89438'][laneOrder] : ['#e4d9bd', '#b65e45', '#6f8582', '#ba9d59', '#899b8a', '#d2d0c5'][index % 6],
+      bodyWidth: auto ? 1.42 : 1.86,
+      bodyHeight: auto ? 1.18 : 0.78,
+      bodyLength: auto ? 2.45 : 4.1,
+      bodyCenterY: auto ? 0.78 : 0.67,
+      cabWidth: auto ? 1.2 : 1.58,
+      cabHeight: auto ? 0.72 : 0.76,
+      cabLength: auto ? 1.58 : 2.2,
+      cabCenterY: auto ? 1.37 : 1.18,
+      cabOffsetZ: auto ? 0.08 : 0.12,
+      wheelX: auto ? 0.66 : 0.92,
+      wheelZ: auto ? 0.72 : 1.24,
+    };
+  });
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const bodyMesh = new THREE.InstancedMesh(
+    unitBox,
+    new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.76, metalness: 0.06 }),
+    vehicleCount,
+  );
+  const cabinMesh = new THREE.InstancedMesh(
+    unitBox,
+    new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.72, metalness: 0.05 }),
+    vehicleCount,
+  );
+  const windowMesh = new THREE.InstancedMesh(
+    unitBox,
+    new THREE.MeshStandardMaterial({ color: '#405356', roughness: 0.3, metalness: 0.18 }),
+    vehicleCount * 3,
+  );
+  const wheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+  wheelGeometry.rotateZ(Math.PI / 2);
+  const wheelMesh = new THREE.InstancedMesh(
+    wheelGeometry,
+    new THREE.MeshStandardMaterial({ color: '#242a29', roughness: 0.92, metalness: 0.03 }),
+    vehicleCount * 4,
+  );
+  for (const mesh of [bodyMesh, cabinMesh, windowMesh, wheelMesh]) {
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
+    parent.add(mesh);
+  }
+  bodyMesh.name = 'Ambient city cars and auto-rickshaws — twelve low-cost moving traffic props';
+  cabinMesh.name = 'Vehicle roof and cabin silhouettes';
+  windowMesh.name = 'Dark window panels on ambient road traffic';
+  wheelMesh.name = 'Four-wheel low-detail traffic silhouettes';
+  for (let index = 0; index < vehicleCount; index += 1) {
+    const vehicle = vehicles[index];
+    if (!vehicle) continue;
+    bodyMesh.setColorAt(index, new THREE.Color(vehicle.bodyColor));
+    cabinMesh.setColorAt(index, new THREE.Color(vehicle.bodyColor).multiplyScalar(0.88));
+  }
+
+  let elapsed = 0;
+  const dummy = new THREE.Object3D();
+  const forward = new THREE.Vector3();
+  const placeVehicle = (index: number): void => {
+    const vehicle = vehicles[index];
+    if (!vehicle) return;
+    const lane = lanes[vehicle.laneIndex] ?? lanes[0]!;
+    const phase = travelLength * (vehicle.laneOrder + 0.5) / 3;
+    const distance = ((phase + elapsed * vehicle.speed) % travelLength + travelLength) % travelLength;
+    const startZ = lane.direction > 0 ? travelStart : travelEnd;
+    const z = startZ + lane.direction * distance;
+    const baseY = groundHeight(lane.x, z) - STATION_BASE_Y + 0.1;
+    const heading = lane.direction > 0 ? 0 : Math.PI;
+    forward.set(Math.sin(heading), 0, Math.cos(heading));
+
+    dummy.position.set(lane.x, baseY + vehicle.bodyCenterY, z);
+    dummy.rotation.set(0, heading, 0);
+    dummy.scale.set(vehicle.bodyWidth, vehicle.bodyHeight, vehicle.bodyLength);
+    dummy.updateMatrix();
+    bodyMesh.setMatrixAt(index, dummy.matrix);
+
+    dummy.position.set(
+      lane.x + forward.x * vehicle.cabOffsetZ,
+      baseY + vehicle.cabCenterY,
+      z + forward.z * vehicle.cabOffsetZ,
+    );
+    dummy.scale.set(vehicle.cabWidth, vehicle.cabHeight, vehicle.cabLength);
+    dummy.updateMatrix();
+    cabinMesh.setMatrixAt(index, dummy.matrix);
+
+    const windowWidth = vehicle.auto ? 0.72 : 0.92;
+    const windowHeight = vehicle.auto ? 0.34 : 0.4;
+    const windowY = baseY + vehicle.cabCenterY;
+    for (let side = -1; side <= 1; side += 1) {
+      const windowIndex = index * 3 + side + 1;
+      const localSideX = side === 0 ? 0 : side * (vehicle.cabWidth / 2 + 0.008);
+      const localForwardZ = side === 0 ? vehicle.cabOffsetZ + vehicle.cabLength / 2 + 0.012 : vehicle.cabOffsetZ;
+      dummy.position.set(
+        lane.x + forward.x * localForwardZ + Math.cos(heading) * localSideX,
+        windowY,
+        z + forward.z * localForwardZ - Math.sin(heading) * localSideX,
+      );
+      dummy.rotation.set(0, heading, 0);
+      dummy.scale.set(side === 0 ? vehicle.cabWidth * 0.72 : 0.025, windowHeight, side === 0 ? 0.025 : windowWidth);
+      dummy.updateMatrix();
+      windowMesh.setMatrixAt(windowIndex, dummy.matrix);
+    }
+
+    for (const side of [-1, 1]) {
+      for (const axle of [-1, 1]) {
+        const wheelIndex = index * 4 + (side > 0 ? 2 : 0) + (axle > 0 ? 1 : 0);
+        const localSideX = side * vehicle.wheelX;
+        const localForwardZ = axle * vehicle.wheelZ;
+        dummy.position.set(
+          lane.x + forward.x * localForwardZ + Math.cos(heading) * localSideX,
+          baseY + 0.32,
+          z + forward.z * localForwardZ - Math.sin(heading) * localSideX,
+        );
+        dummy.rotation.set(0, heading, Math.PI / 2);
+        dummy.scale.set(0.68, 0.2, 0.68);
+        dummy.updateMatrix();
+        wheelMesh.setMatrixAt(wheelIndex, dummy.matrix);
+      }
+    }
+  };
+
+  const update = (deltaSeconds: number): boolean => {
+    if (!reducedMotion) elapsed += THREE.MathUtils.clamp(deltaSeconds, 0, 0.2);
+    for (let index = 0; index < vehicleCount; index += 1) placeVehicle(index);
+    bodyMesh.instanceMatrix.needsUpdate = true;
+    cabinMesh.instanceMatrix.needsUpdate = true;
+    windowMesh.instanceMatrix.needsUpdate = true;
+    wheelMesh.instanceMatrix.needsUpdate = true;
+    return !reducedMotion;
+  };
+  update(0);
+  return update;
+}
+
 function makeTerrainRibbonGeometry(
   start: THREE.Vector2,
   end: THREE.Vector2,
@@ -198,6 +434,117 @@ function makeTerrainRibbonGeometry(
       indices.push(a, c, b, b, c, d);
     }
   }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function makePathRibbonGeometry(
+  path: THREE.CatmullRomCurve3,
+  width: number,
+  lateralOffset = 0,
+  heightOffset = 0,
+  sampleSpacing = 5,
+): THREE.BufferGeometry {
+  const length = path.getLength();
+  const alongSegments = Math.max(2, Math.ceil(length / sampleSpacing));
+  const acrossSegments = 4;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const center = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const side = new THREE.Vector3();
+
+  for (let along = 0; along <= alongSegments; along += 1) {
+    const t = along / alongSegments;
+    center.copy(path.getPointAt(t));
+    tangent.copy(path.getTangentAt(t)).normalize();
+    side.set(tangent.z, 0, -tangent.x).normalize();
+    center.addScaledVector(side, lateralOffset);
+    for (let across = 0; across <= acrossSegments; across += 1) {
+      const acrossT = across / acrossSegments - 0.5;
+      positions.push(
+        center.x + side.x * width * acrossT,
+        center.y + heightOffset,
+        center.z + side.z * width * acrossT,
+      );
+      uvs.push(t * length / 18, acrossT + 0.5);
+    }
+  }
+
+  const rowSize = acrossSegments + 1;
+  for (let along = 0; along < alongSegments; along += 1) {
+    for (let across = 0; across < acrossSegments; across += 1) {
+      const a = along * rowSize + across;
+      const b = a + rowSize;
+      const c = a + 1;
+      const d = b + 1;
+      // For a path along +Z the lateral points +X; along × lateral faces upward.
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function makePathGirderGeometry(
+  path: THREE.CatmullRomCurve3,
+  width: number,
+  depth: number,
+  sampleSpacing = 5,
+): THREE.BufferGeometry {
+  const length = path.getLength();
+  const segments = Math.max(2, Math.ceil(length / sampleSpacing));
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const center = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const side = new THREE.Vector3();
+
+  for (let along = 0; along <= segments; along += 1) {
+    const t = along / segments;
+    center.copy(path.getPointAt(t));
+    tangent.copy(path.getTangentAt(t)).normalize();
+    side.set(tangent.z, 0, -tangent.x).normalize();
+    const leftTop = center.clone().addScaledVector(side, -width / 2);
+    const rightTop = center.clone().addScaledVector(side, width / 2);
+    const leftBottom = leftTop.clone().add(new THREE.Vector3(0, -depth, 0));
+    const rightBottom = rightTop.clone().add(new THREE.Vector3(0, -depth, 0));
+    positions.push(
+      leftTop.x, leftTop.y, leftTop.z,
+      rightTop.x, rightTop.y, rightTop.z,
+      leftBottom.x, leftBottom.y, leftBottom.z,
+      rightBottom.x, rightBottom.y, rightBottom.z,
+    );
+    uvs.push(t * length / 18, 0, t * length / 18, 1, t * length / 18, 0, t * length / 18, 1);
+  }
+
+  for (let along = 0; along < segments; along += 1) {
+    const a = along * 4;
+    const b = a + 4;
+    // Top face.
+    indices.push(a, b, a + 1, a + 1, b, b + 1);
+    // Bottom face.
+    indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
+    // Left and right fascia faces.
+    indices.push(a, a + 2, b, b, a + 2, b + 2);
+    indices.push(a + 1, b + 1, a + 3, b + 1, b + 3, a + 3);
+  }
+  const last = segments * 4;
+  indices.push(0, 1, 2, 1, 3, 2, last, last + 2, last + 1, last + 1, last + 2, last + 3);
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -368,7 +715,12 @@ function addCityRoadNetwork(
   const roadOffsetZ = stationHalfLength + 16;
   const roadHalfWidth = 6.5;
   const roadRunX = roadOffsetX;
-  const roadLengthZ = roadOffsetZ - roadHalfWidth;
+  // The station-side access loop continues into the generic urban edge instead
+  // of stopping at the platform extents. This is an illustrative local street,
+  // not a traced Secunderabad road or a crossing through the rail yard.
+  const roadLengthZ = 1_100;
+  const busX = stationHalfWidth - 40;
+  const busZ = Math.round(stationHalfLength / 2 + 82.5);
 
   addRibbon(
     parent,
@@ -404,6 +756,45 @@ function addCityRoadNetwork(
     );
   }
 
+  // A short, clearly separate driveway makes the Rathifile context reachable
+  // from the outside road loop without crossing the modeled station tracks.
+  addRibbon(
+    parent,
+    'Rathifile context driveway — conceptual access spur outside the station boundary',
+    new THREE.Vector2(roadRunX - 4.5, busZ),
+    new THREE.Vector2(busX + 32.5, busZ),
+    9.0,
+    groundHeight,
+    roadMaterial,
+    0.1,
+  );
+
+  // Low kerbs and sidewalks follow the access roads far enough to meet the
+  // surrounding urban blocks; they remain outside the railway clearances.
+  const curbOffset = roadRunX + roadHalfWidth - 0.12;
+  for (const side of [-1, 1]) {
+    addRibbon(
+      parent,
+      `${side < 0 ? 'West' : 'East'} access-road outer kerb — schematic`,
+      new THREE.Vector2(side * curbOffset, -roadLengthZ),
+      new THREE.Vector2(side * curbOffset, roadLengthZ),
+      0.28,
+      groundHeight,
+      edgeMaterial,
+      0.17,
+    );
+    addRibbon(
+      parent,
+      `${side < 0 ? 'West' : 'East'} urban sidewalk continuation — schematic`,
+      new THREE.Vector2(side * (roadRunX + 10.8), -roadLengthZ),
+      new THREE.Vector2(side * (roadRunX + 10.8), roadLengthZ),
+      2.8,
+      groundHeight,
+      footpathMaterial,
+      0.13,
+    );
+  }
+
   const footpathOffsetX = stationHalfWidth + 5.7;
   const footpathOffsetZ = stationHalfLength + 4.3;
   const footpathHalfWidth = 1.8;
@@ -436,6 +827,9 @@ function addCityRoadNetwork(
       dash(new THREE.Vector2(x, z), new THREE.Vector2(Math.min(x + 8, roadRunX), z));
     }
   }
+  for (let x = busX + 34; x < roadRunX - 7; x += 9) {
+    dash(new THREE.Vector2(x, busZ), new THREE.Vector2(Math.min(x + 4.5, roadRunX - 6), busZ));
+  }
   const crosswalkZs = [-stationHalfLength * 0.16, stationHalfLength * 0.16];
   for (const side of [-1, 1]) {
     const x = side * roadRunX;
@@ -454,6 +848,47 @@ function addCityRoadNetwork(
   markings.castShadow = false;
   markings.receiveShadow = false;
   parent.add(markings);
+
+  const patchedAsphalt = new THREE.MeshStandardMaterial({ color: '#484d49', roughness: 0.99, metalness: 0.01 });
+  const roadPatches: BoxPlacement[] = [];
+  const drainGrates: BoxPlacement[] = [];
+  const manholeCovers: BoxPlacement[] = [];
+  for (const side of [-1, 1]) {
+    for (let index = 0; index < 7; index += 1) {
+      const z = -930 + index * 305 + (side < 0 ? 42 : -27);
+      const x = side * (roadRunX + (index % 2 === 0 ? 2.8 : -2.7));
+      roadPatches.push({
+        position: new THREE.Vector3(x, groundHeight(x, z) - STATION_BASE_Y + 0.102, z),
+        scale: new THREE.Vector3(2.4 + (index % 3) * 0.8, 0.025, 3.2 + (index % 2) * 1.5),
+        rotationY: (index % 2 === 0 ? 1 : -1) * 0.12,
+        color: index % 3 === 0 ? '#555a55' : '#424844',
+      });
+      const grateX = side * (roadRunX + roadHalfWidth - 1.0);
+      const grateZ = -880 + index * 290;
+      drainGrates.push({
+        position: new THREE.Vector3(grateX, groundHeight(grateX, grateZ) - STATION_BASE_Y + 0.12, grateZ),
+        scale: new THREE.Vector3(2.2, 0.035, 0.42),
+        color: '#555b57',
+      });
+    }
+    for (const z of [-760, -380, 0, 380, 760]) {
+      const x = side * (roadRunX - 3.5);
+      manholeCovers.push({
+        position: new THREE.Vector3(x, groundHeight(x, z) - STATION_BASE_Y + 0.105, z),
+        scale: new THREE.Vector3(1, 1, 1),
+        color: '#666963',
+      });
+    }
+  }
+  addBoxInstances(parent, 'Small patched asphalt repairs along access roads — procedural wear', new THREE.BoxGeometry(1, 1, 1), patchedAsphalt, roadPatches).castShadow = false;
+  addBoxInstances(parent, 'Roadside storm-drain grates — illustrative detail', new THREE.BoxGeometry(1, 1, 1), edgeMaterial, drainGrates).castShadow = false;
+  addCylinderInstances(
+    parent,
+    'Road access manhole covers — illustrative utility detail',
+    new THREE.CylinderGeometry(0.52, 0.52, 0.055, 14),
+    edgeMaterial,
+    manholeCovers,
+  ).castShadow = false;
 
   // Raised kerbs and marker blocks make the road edge legible without adding
   // poles or gantries inside the track/OHE clearance envelope.
@@ -656,8 +1091,8 @@ function addUrbanBuildings(
   const addBlock = (x: number, z: number): void => {
     // Leave a deliberately reserved, illustrative intermodal parcel for the
     // Metro/Rathifile context study; it is not a mapped station boundary.
-    if ((x > 190 && x < 260 && z > -330 && z < 330)
-      || (x > 230 && x < 305 && z > 250 && z < 385)) return;
+    if ((x > 180 && x < 265 && z > -330 && z < 330)
+      || (x > 65 && x < 150 && z > 385 && z < 515)) return;
     const style = (random() < 0.32 ? 2 : random() < 0.52 ? 0 : 1) as 0 | 1 | 2;
     const width = 12 + random() * 30;
     const depth = 15 + random() * 29;
@@ -681,8 +1116,8 @@ function addUrbanBuildings(
   // Loose street-block rows leave the station-edge access loop clear. Their
   // positions are illustrative urban massing, not individually mapped parcels.
   for (const side of [-1, 1]) {
-    for (let row = 0; row < 5; row += 1) {
-      const x = side * (cityStartX + row * 51 + (random() - 0.5) * 16);
+    for (let row = 0; row < 9; row += 1) {
+      const x = side * (cityStartX + row * 76 + (random() - 0.5) * 16);
       for (let column = -8; column <= 8; column += 1) {
         const z = column * 58 + (random() - 0.5) * 26;
         addBlock(x, z);
@@ -690,8 +1125,8 @@ function addUrbanBuildings(
     }
   }
   for (const side of [-1, 1]) {
-    for (let row = 0; row < 2; row += 1) {
-      const z = side * (cityStartZ + row * 54 + (random() - 0.5) * 22);
+    for (let row = 0; row < 8; row += 1) {
+      const z = side * (cityStartZ + row * 82 + (random() - 0.5) * 22);
       for (let column = -7; column <= 7; column += 1) {
         const x = column * 59 + (random() - 0.5) * 30;
         addBlock(x, z);
@@ -1048,15 +1483,30 @@ function makeContextSignTexture(title: string, subtitle: string): THREE.CanvasTe
   return texture;
 }
 
-function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, halfWidth: number): void {
+function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, halfWidth: number, halfLength: number): void {
   const group = new THREE.Group();
   group.name = 'Secunderabad Metro and Rathifile bus interchange context — conceptual massing, no surveyed alignment';
   group.userData.caveat = 'Both Metro stations and nearby Rathifile are documented; this guideway, station bearing, bus-terminal footprint, and exact separation are illustrative only.';
   const metroX = halfWidth + 45;
   const metroStationZ = 170;
+  const metroAccessSidewalkX = halfWidth + 29.8;
   const metroGround = groundHeight(metroX, metroStationZ) - STATION_BASE_Y;
   const guidewayTop = metroGround + 13.2;
-  const guidewayLength = 520;
+  const metroCenterline = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(metroX + 50, guidewayTop, -1_600),
+    new THREE.Vector3(metroX + 32, guidewayTop, -1_180),
+    new THREE.Vector3(metroX + 12, guidewayTop, -760),
+    new THREE.Vector3(metroX - 8, guidewayTop, -330),
+    new THREE.Vector3(metroX, guidewayTop, -45),
+    new THREE.Vector3(metroX, guidewayTop, metroStationZ),
+    new THREE.Vector3(metroX, guidewayTop, 360),
+    new THREE.Vector3(metroX + 8, guidewayTop, 630),
+    new THREE.Vector3(metroX + 28, guidewayTop, 1_050),
+    new THREE.Vector3(metroX + 50, guidewayTop, 1_600),
+  ], false, 'catmullrom', 0.16);
+  metroCenterline.arcLengthDivisions = 2_048;
+  metroCenterline.updateArcLengths();
+  const metroPathLength = metroCenterline.getLength();
   const concrete = new THREE.MeshStandardMaterial({ color: '#c1c3bd', roughness: 0.82, metalness: 0.06 });
   const railMaterial = new THREE.MeshStandardMaterial({ color: '#56615e', roughness: 0.38, metalness: 0.72 });
   const platformMaterial = new THREE.MeshStandardMaterial({ color: '#bcbcb1', roughness: 0.88, metalness: 0.02 });
@@ -1068,47 +1518,91 @@ function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, h
   const platformEdges: BoxPlacement[] = [];
   const platformRoof: BoxPlacement[] = [];
   const platformColumns: BoxPlacement[] = [];
-  const metroRailBeds: BoxPlacement[] = [];
-  const metroRails: BoxPlacement[] = [];
   const metroSignTransforms: BoxPlacement[] = [];
+  const metroPierCaps: BoxPlacement[] = [];
   const stationRange = 82;
   const platformY = guidewayTop + 0.26;
   const stationRoofY = guidewayTop + 6.1;
 
   const guideway = new THREE.Mesh(
-    new THREE.BoxGeometry(9.2, 0.68, guidewayLength),
+    makePathGirderGeometry(metroCenterline, 9.2, 0.68, 4.5),
     concrete,
   );
-  guideway.name = 'Elevated two-track Metro viaduct — orientation and alignment schematic';
-  guideway.position.set(metroX, guidewayTop - 0.34, 0);
+  guideway.name = 'Continuous gently curved twin-track Metro concrete girder — alignment schematic';
   guideway.castShadow = true;
   guideway.receiveShadow = true;
   group.add(guideway);
-  for (let z = -guidewayLength / 2 + 20; z <= guidewayLength / 2 - 20; z += 30) {
-    const localGround = groundHeight(metroX, z) - STATION_BASE_Y;
-    const pierHeight = guidewayTop - 0.68 - localGround;
+
+  // A single pier line and short cross-heads carry the continuous girder. The
+  // repeated supports are structural context, not a surveyed pier schedule.
+  for (let distance = 18; distance < metroPathLength - 18; distance += 30) {
+    const t = distance / metroPathLength;
+    const point = metroCenterline.getPointAt(t);
+    const tangent = metroCenterline.getTangentAt(t).normalize();
+    const localGround = groundHeight(point.x, point.z) - STATION_BASE_Y;
+    const columnTop = point.y - 0.68 - 0.52;
+    const pierHeight = Math.max(1, columnTop - localGround);
     metroSupport.push({
-      position: new THREE.Vector3(metroX, localGround + pierHeight / 2, z),
-      scale: new THREE.Vector3(1.65, pierHeight, 1.65),
+      position: new THREE.Vector3(point.x, localGround + pierHeight / 2, point.z),
+      scale: new THREE.Vector3(1.55, pierHeight, 1.55),
       color: '#b5b8b2',
     });
-  }
-  for (const trackOffset of [-1.8, 1.8]) {
-    metroRailBeds.push({
-      position: new THREE.Vector3(metroX + trackOffset, guidewayTop + 0.07, 0),
-      scale: new THREE.Vector3(1.1, 0.08, guidewayLength),
-      color: '#686b66',
+    metroPierCaps.push({
+      position: new THREE.Vector3(point.x, columnTop + 0.26, point.z),
+      scale: new THREE.Vector3(10.2, 0.52, 1.45),
+      rotationY: Math.atan2(tangent.x, tangent.z),
+      color: '#bfc1bb',
     });
+  }
+  addBoxInstances(group, 'Metro single-column piers — context-only structural rhythm', new THREE.BoxGeometry(1, 1, 1), concrete, metroSupport).castShadow = true;
+  addBoxInstances(group, 'Metro pier cross-heads — schematic support caps', new THREE.BoxGeometry(1, 1, 1), concrete, metroPierCaps).castShadow = true;
+
+  for (const trackOffset of [-1.8, 1.8]) {
+    const trackBed = new THREE.Mesh(
+      makePathRibbonGeometry(metroCenterline, 1.18, trackOffset, 0.075, 4.5),
+      railMaterial,
+    );
+    trackBed.name = 'Metro twin trackway bed — illustrative, not a gauge/track-engineering model';
+    trackBed.castShadow = false;
+    trackBed.receiveShadow = true;
+    group.add(trackBed);
     for (const railOffset of [-0.72, 0.72]) {
-      metroRails.push({
-        position: new THREE.Vector3(metroX + trackOffset + railOffset, guidewayTop + 0.19, 0),
-        scale: new THREE.Vector3(1, 1, 1),
+      const rail = new THREE.Mesh(
+        makePathRibbonGeometry(metroCenterline, 0.085, trackOffset + railOffset, 0.205, 3.0),
+        new THREE.MeshStandardMaterial({ color: '#88918d', roughness: 0.3, metalness: 0.72 }),
+      );
+      rail.name = 'Continuous Metro rail-head ribbon — schematic';
+      rail.castShadow = false;
+      rail.receiveShadow = false;
+      group.add(rail);
+    }
+  }
+
+  const horizonBlocks: BoxPlacement[] = [];
+  for (const side of [-1, 1]) {
+    const distantMasses = [
+      { x: metroX + 50, z: side * 1_575, width: 64, height: 38, depth: 116 },
+      { x: metroX - 11, z: side * 1_610, width: 46, height: 26, depth: 90 },
+      { x: metroX + 108, z: side * 1_625, width: 52, height: 30, depth: 86 },
+    ];
+    for (const mass of distantMasses) {
+      const localGround = groundHeight(mass.x, mass.z) - STATION_BASE_Y;
+      horizonBlocks.push({
+        position: new THREE.Vector3(mass.x, localGround + mass.height / 2, mass.z),
+        scale: new THREE.Vector3(mass.width, mass.height, mass.depth),
+        color: side < 0 ? '#a99d88' : '#9da8a3',
       });
     }
   }
-  addBoxInstances(group, 'Metro viaduct concrete piers — context-only massing', new THREE.BoxGeometry(1, 1, 1), concrete, metroSupport).castShadow = true;
-  addBoxInstances(group, 'Metro trackways — illustrative, not a gauge/track-engineering model', new THREE.BoxGeometry(1, 1, 1), railMaterial, metroRailBeds).castShadow = false;
-  addBoxInstances(group, 'Twin Metro rail-head ribbons — generic elevated line', new THREE.BoxGeometry(0.09, 0.16, guidewayLength), railMaterial, metroRails).castShadow = false;
+  const horizonBlockMesh = addBoxInstances(
+    group,
+    'Distant generic city massing conceals guideway continuation in atmospheric depth',
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ map: makeFacadeTexture(1), roughness: 0.94, metalness: 0.01, flatShading: true }),
+    horizonBlocks,
+  );
+  horizonBlockMesh.castShadow = false;
+  horizonBlockMesh.receiveShadow = false;
 
   for (const side of [-1, 1]) {
     const centerX = metroX + side * 6.0;
@@ -1144,6 +1638,95 @@ function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, h
   addBoxInstances(group, 'Metro side-platform canopy panels — schematic, separated from station-yard roof', new THREE.BoxGeometry(1, 1, 1), metroRoofMaterial, platformRoof).castShadow = true;
   addBoxInstances(group, 'Metro station canopy posts — sparse context massing', new THREE.BoxGeometry(1, 1, 1), concrete, platformColumns).castShadow = false;
 
+  const liftCores: BoxPlacement[] = [];
+  const liftCaps: BoxPlacement[] = [];
+  const liftLandings: BoxPlacement[] = [];
+  const platformLinks: BoxPlacement[] = [];
+  const liftMaterial = new THREE.MeshStandardMaterial({ color: '#7d928f', roughness: 0.34, metalness: 0.16 });
+  for (const side of [-1, 1]) {
+    const x = metroX + side * 11.5;
+    const localGround = groundHeight(x, metroStationZ) - STATION_BASE_Y;
+    const top = platformY + 0.18;
+    const height = Math.max(1, top - localGround);
+    liftCores.push({
+      position: new THREE.Vector3(x, localGround + height / 2, metroStationZ),
+      scale: new THREE.Vector3(2.8, height, 3.3),
+      color: '#81918c',
+    });
+    liftCaps.push({
+      position: new THREE.Vector3(x, top + 0.2, metroStationZ),
+      scale: new THREE.Vector3(3.4, 0.4, 4.0),
+      color: '#c6c5bb',
+    });
+    liftLandings.push({
+      position: new THREE.Vector3(x, localGround + 0.08, metroStationZ),
+      scale: new THREE.Vector3(5.2, 0.16, 6.0),
+      color: '#b4b2a8',
+    });
+    platformLinks.push({
+      position: new THREE.Vector3(metroX + side * 9.7, top + 0.04, metroStationZ),
+      scale: new THREE.Vector3(4.1, 0.16, 2.8),
+      color: '#c3c1b6',
+    });
+    addRibbon(
+      group,
+      'Metro lift landing footpath — schematic access to the surrounding street',
+      new THREE.Vector2(metroAccessSidewalkX, metroStationZ),
+      new THREE.Vector2(x, metroStationZ),
+      3.0,
+      groundHeight,
+      new THREE.MeshStandardMaterial({ color: '#b8b7ac', roughness: 0.95, metalness: 0.01 }),
+      0.13,
+    );
+  }
+  addBoxInstances(group, 'Metro station lift cores — street-to-platform access massing', new THREE.BoxGeometry(1, 1, 1), liftMaterial, liftCores).castShadow = false;
+  addBoxInstances(group, 'Metro station lift roofs — generic access-node caps', new THREE.BoxGeometry(1, 1, 1), concrete, liftCaps).castShadow = false;
+  addBoxInstances(group, 'Metro lift street-level landings', new THREE.BoxGeometry(1, 1, 1), platformMaterial, liftLandings).castShadow = false;
+  addBoxInstances(group, 'Short links from Metro platforms to access cores', new THREE.BoxGeometry(1, 1, 1), platformMaterial, platformLinks).castShadow = false;
+
+  const stairTreads: BoxPlacement[] = [];
+  const stairRails: BeamSegment[] = [];
+  const stairPosts: BeamSegment[] = [];
+  const stairFlights = [metroStationZ - 31, metroStationZ + 31];
+  // Keep the ground descent visibly stair-like rather than a coarse ladder.
+  const stairStepCount = 82;
+  for (const stairZ of stairFlights) {
+    const startX = metroX + 7.4;
+    const endX = metroAccessSidewalkX;
+    const endGround = groundHeight(endX, stairZ) - STATION_BASE_Y;
+    for (let step = 0; step < stairStepCount; step += 1) {
+      const progress = step / (stairStepCount - 1);
+      const x = THREE.MathUtils.lerp(startX, endX, progress);
+      const localGround = groundHeight(x, stairZ) - STATION_BASE_Y;
+      const y = THREE.MathUtils.lerp(platformY + 0.16, localGround + 0.18, progress);
+      stairTreads.push({
+        position: new THREE.Vector3(x, y, stairZ),
+        scale: new THREE.Vector3(0.38, 0.18, 2.4),
+        color: step % 4 === 0 ? '#cbc8bd' : '#aaa99f',
+      });
+    }
+    for (const side of [-1, 1]) {
+      stairRails.push({
+        start: new THREE.Vector3(startX - 0.2, platformY + 0.8, stairZ + side * 1.2),
+        end: new THREE.Vector3(endX, endGround + 0.95, stairZ + side * 1.2),
+      });
+      for (let post = 0; post <= 28; post += 1) {
+        const progress = post / 28;
+        const x = THREE.MathUtils.lerp(startX, endX, progress);
+        const y = THREE.MathUtils.lerp(platformY + 0.8, endGround + 0.95, progress);
+        const z = stairZ + side * 1.2;
+        stairPosts.push({
+          start: new THREE.Vector3(x, y - 0.55, z),
+          end: new THREE.Vector3(x, y, z),
+        });
+      }
+    }
+  }
+  addBoxInstances(group, 'Metro street-access stair treads — illustrative, no surveyed location', new THREE.BoxGeometry(1, 1, 1), platformMaterial, stairTreads).castShadow = false;
+  const accessSteel = new THREE.MeshStandardMaterial({ color: '#737d78', roughness: 0.72, metalness: 0.16 });
+  addBeamInstances(group, 'Metro access stair handrails', new THREE.CylinderGeometry(0.035, 0.045, 1, 6), accessSteel, stairRails, false);
+  addBeamInstances(group, 'Metro access stair balusters', new THREE.CylinderGeometry(0.026, 0.03, 1, 5), accessSteel, stairPosts, false);
+
   const metroSign = makeContextSignTexture('SECUNDERABAD METRO', 'INTERCHANGE CONTEXT STUDY');
   const metroSignMaterial = new THREE.MeshBasicMaterial({ map: metroSign, side: THREE.DoubleSide, toneMapped: false });
   metroSignTransforms.push({
@@ -1151,33 +1734,48 @@ function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, h
     scale: new THREE.Vector3(1, 1, 1),
   });
   addPlaneInstances(group, 'Metro interchange sign — contextual label, not exact station branding', new THREE.PlaneGeometry(9.5, 2.0), metroSignMaterial, metroSignTransforms);
+  const metroPassengers: PedestrianPlacement[] = [];
+  for (const side of [-1, 1]) {
+    for (let index = 0; index < 3; index += 1) {
+      metroPassengers.push({
+        x: metroX + side * 6.0 + (index - 1) * 0.55,
+        z: metroStationZ - 22 + index * 22,
+        baseY: platformY + 0.2,
+        rotationY: side > 0 ? Math.PI : 0,
+        clothing: ['#b66f45', '#466b68', '#c3a85f'][index] ?? '#466b68',
+      });
+    }
+  }
+  addPedestrians(group, 'Metro platform passengers — static scale figures', metroPassengers);
 
-  const busX = metroX - 2;
-  const busZ = 330;
+  const busX = halfWidth - 40;
+  const busZ = Math.round(halfLength / 2 + 82.5);
   const busGround = groundHeight(busX, busZ) - STATION_BASE_Y;
   const busRoofY = busGround + 6.0;
   const busTerminal = new THREE.Group();
   busTerminal.name = 'Rathifile bus-station context — approximate location and footprint, not surveyed';
-  busTerminal.userData.caveat = 'Name is supported by L&T Metro neighborhood listings; geometry and placement are representative only.';
-  const terminalBase = new THREE.Mesh(new THREE.BoxGeometry(36, 0.22, 66), new THREE.MeshStandardMaterial({ color: '#777c76', roughness: 0.94 }));
+  busTerminal.userData.caveat = 'Rathifile is distinct from Jubilee Bus Station (JBS); terminal footprint, bay count and placement here are representative only.';
+  const terminalBase = new THREE.Mesh(new THREE.BoxGeometry(66, 0.22, 100), new THREE.MeshStandardMaterial({ color: '#777c76', roughness: 0.94 }));
   terminalBase.position.set(busX, busGround + 0.11, busZ);
   terminalBase.receiveShadow = true;
   busTerminal.add(terminalBase);
-  for (const side of [-1, 1]) {
-    const terminalRoof = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.32, 58), canopyMaterial);
-    terminalRoof.name = 'Open bus-bay waiting canopy wing — contextual massing';
-    terminalRoof.position.set(busX + side * 14.5, busRoofY, busZ);
+  for (const laneX of [-22, 0, 22]) {
+    const terminalRoof = new THREE.Mesh(new THREE.BoxGeometry(9.8, 0.32, 88), canopyMaterial);
+    terminalRoof.name = 'Open bus-bay canopy strip — schematic terminal massing';
+    terminalRoof.position.set(busX + laneX, busRoofY, busZ);
     terminalRoof.receiveShadow = true;
     busTerminal.add(terminalRoof);
   }
   const bayPosts: BoxPlacement[] = [];
-  for (const xOffset of [-18, -11, 11, 18]) {
-    for (const zOffset of [-24, 24]) {
-      bayPosts.push({
-        position: new THREE.Vector3(busX + xOffset, (busGround + 0.22 + busRoofY) / 2, busZ + zOffset),
-        scale: new THREE.Vector3(0.22, busRoofY - busGround - 0.22, 0.22),
-        color: '#7d8580',
-      });
+  for (const laneX of [-22, 0, 22]) {
+    for (const postSide of [-1, 1]) {
+      for (const zOffset of [-40, 40]) {
+        bayPosts.push({
+          position: new THREE.Vector3(busX + laneX + postSide * 4.45, (busGround + 0.22 + busRoofY) / 2, busZ + zOffset),
+          scale: new THREE.Vector3(0.22, busRoofY - busGround - 0.22, 0.22),
+          color: '#7d8580',
+        });
+      }
     }
   }
   addBoxInstances(busTerminal, 'Bus-terminal canopy columns', new THREE.BoxGeometry(1, 1, 1), concrete, bayPosts).castShadow = false;
@@ -1189,10 +1787,43 @@ function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, h
   addPlaneInstances(
     busTerminal,
     'Rathifile context sign — illustrative label, not a measured entrance',
-    new THREE.PlaneGeometry(14, 2.5),
+    new THREE.PlaneGeometry(20, 2.8),
     busSignMaterial,
-    [{ position: new THREE.Vector3(busX, busRoofY - 0.4, busZ - 30), scale: new THREE.Vector3(1, 1, 1) }],
+    [{ position: new THREE.Vector3(busX, busRoofY - 0.4, busZ - 48), scale: new THREE.Vector3(1, 1, 1) }],
   );
+  const kioskBody = new THREE.Mesh(
+    new THREE.BoxGeometry(6.2, 2.7, 4.8),
+    new THREE.MeshStandardMaterial({ color: '#d3c6a8', roughness: 0.9, metalness: 0.01 }),
+  );
+  kioskBody.name = 'Small unbranded bus-information kiosk — representative detail';
+  kioskBody.position.set(busX, busGround + 1.35, busZ + 43.5);
+  busTerminal.add(kioskBody);
+  const waitingBenches: BoxPlacement[] = [];
+  const waitingBenchLegs: BoxPlacement[] = [];
+  for (const side of [-1, 1]) {
+    const x = busX + side * 12;
+    const z = busZ + 37;
+    waitingBenches.push({
+      position: new THREE.Vector3(x, busGround + 0.58, z),
+      scale: new THREE.Vector3(2.6, 0.13, 0.46),
+      color: '#796d5c',
+    });
+    for (const legSide of [-1, 1]) {
+      waitingBenchLegs.push({
+        position: new THREE.Vector3(x + legSide * 0.92, busGround + 0.3, z),
+        scale: new THREE.Vector3(0.1, 0.55, 0.1),
+        color: '#606863',
+      });
+    }
+  }
+  addBoxInstances(busTerminal, 'Bus-terminal waiting benches', new THREE.BoxGeometry(1, 1, 1), concrete, waitingBenches).castShadow = false;
+  addBoxInstances(busTerminal, 'Bench legs in the bus waiting area', new THREE.BoxGeometry(1, 1, 1), concrete, waitingBenchLegs).castShadow = false;
+  const busBins: BoxPlacement[] = [-1, 1].map((side) => ({
+    position: new THREE.Vector3(busX + side * 29, busGround + 0.56, busZ + 39),
+    scale: new THREE.Vector3(0.55, 1.1, 0.55),
+    color: '#566963',
+  }));
+  addBoxInstances(busTerminal, 'Small litter bins — generic terminal-scale props', new THREE.BoxGeometry(1, 1, 1), concrete, busBins).castShadow = false;
 
   const busBody: BoxPlacement[] = [];
   const busBands: BoxPlacement[] = [];
@@ -1207,14 +1838,13 @@ function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, h
   const motorcycleForks: BeamSegment[] = [];
   const motorcycleBars: BeamSegment[] = [];
   const motorcyclePositions = [
-    { x: busX - 15.2, z: busZ - 28.5, color: '#8b493b' },
-    { x: busX + 15.2, z: busZ - 28.5, color: '#41656c' },
+    { x: busX - 26.5, z: busZ - 46, color: '#8b493b' },
+    { x: busX + 26.5, z: busZ - 46, color: '#41656c' },
   ];
-  const busPositions = [
-    { x: busX - 9, z: busZ - 10 },
-    { x: busX, z: busZ + 7 },
-    { x: busX + 9, z: busZ - 7 },
-  ];
+  const busPositions = [-22, 0, 22].flatMap((laneOffset) => [
+    { x: busX + laneOffset, z: busZ - 25 },
+    { x: busX + laneOffset, z: busZ + 25 },
+  ]);
   const busWhite = new THREE.MeshStandardMaterial({ color: '#f0eee3', roughness: 0.66, metalness: 0.08 });
   const busBlue = new THREE.MeshStandardMaterial({ color: '#28728c', roughness: 0.62, metalness: 0.12 });
   const busGlass = new THREE.MeshStandardMaterial({ color: '#34494e', roughness: 0.3, metalness: 0.14 });
@@ -1286,8 +1916,19 @@ function addIntermodalContext(parent: THREE.Group, groundHeight: GroundHeight, h
   addCylinderInstances(busTerminal, 'Motorcycle wheels', motorcycleWheelGeometry, wheelMaterial, motorcycleWheels).receiveShadow = false;
   addBeamInstances(busTerminal, 'Motorcycle fork and rear stays', new THREE.CylinderGeometry(0.035, 0.045, 1, 5), motorcycleTrim, motorcycleForks, false);
   addBeamInstances(busTerminal, 'Motorcycle handlebars', new THREE.CylinderGeometry(0.025, 0.03, 1, 5), motorcycleTrim, motorcycleBars, false);
+  const terminalPassengers: PedestrianPlacement[] = [
+    { x: busX - 12, z: busZ - 37, baseY: busGround + 0.12, clothing: '#b87e4d' },
+    { x: busX + 12, z: busZ - 37, baseY: busGround + 0.12, clothing: '#4c6d68' },
+    { x: busX - 12, z: busZ + 37, baseY: busGround + 0.12, clothing: '#a85f4a' },
+    { x: busX + 12, z: busZ + 37, baseY: busGround + 0.12, clothing: '#c1a357' },
+    { x: busX - 29, z: busZ + 16, baseY: busGround + 0.12, clothing: '#657d91' },
+    { x: busX + 29, z: busZ + 16, baseY: busGround + 0.12, clothing: '#8a765f' },
+    { x: busX - 29, z: busZ - 16, baseY: busGround + 0.12, clothing: '#577260' },
+    { x: busX + 29, z: busZ - 16, baseY: busGround + 0.12, clothing: '#a76348' },
+  ];
+  addPedestrians(busTerminal, 'Rathifile waiting passengers — static scale figures', terminalPassengers);
   group.add(busTerminal);
-  group.userData.caveat = 'Metro guideway, station massing, bus terminal and static buses are context props only; alignment, footprint, vehicle livery and traffic are not mapped.';
+  group.userData.caveat = 'The continuous Metro guideway, station access massing, Rathifile terminal and traffic are conceptual context props only; alignment, footprint, bay count, vehicle livery and operation are not mapped.';
   parent.add(group);
 }
 
@@ -1580,6 +2221,7 @@ function addStreetLights(
 export type SecunderabadSurroundingsParts = {
   group: THREE.Group;
   streetLampMaterial: THREE.MeshStandardMaterial;
+  updateAmbientTraffic: (deltaSeconds: number) => boolean;
 };
 
 export function createSecunderabadSurroundings(
@@ -1596,6 +2238,7 @@ export function createSecunderabadSurroundings(
   const halfLength = sitePadLength / 2;
 
   addCityRoadNetwork(group, groundHeight, halfWidth, halfLength);
+  const updateAmbientTraffic = createRoadTraffic(group, groundHeight, halfWidth + 19, 1_100);
   addRepresentativeBoundaryWalls(group, groundHeight, halfWidth, halfLength);
 
   const garden = addStationGardens(group, 0.1);
@@ -1638,8 +2281,22 @@ export function createSecunderabadSurroundings(
   ];
   addTreeGroup(group, forecourtTrees, garden.trunkMaterial, garden.leafMaterial);
 
-  addUrbanBuildings(group, groundHeight, halfWidth + 90, halfLength + 66);
-  addIntermodalContext(group, groundHeight, halfWidth);
+  const stationPassengers: PedestrianPlacement[] = [];
+  for (const side of [-1, 1]) {
+    for (let index = 0; index < 4; index += 1) {
+      stationPassengers.push({
+        x: side * 128.0,
+        z: -50 + index * 30,
+        baseY: 0.12,
+        rotationY: side < 0 ? 0 : Math.PI,
+        clothing: ['#b66b4d', '#4b6c68', '#c3a354', '#61748b'][index] ?? '#61748b',
+      });
+    }
+  }
+  addPedestrians(group, 'Station-front passengers — static scale figures', stationPassengers);
+
+  addUrbanBuildings(group, groundHeight, halfWidth + 120, halfLength + 66);
+  addIntermodalContext(group, groundHeight, halfWidth, halfLength);
   addDeccanScrubAndStones(group, groundHeight, halfWidth, halfLength);
   const streetLampMaterial = new THREE.MeshStandardMaterial({
     color: '#d9d3c0',
@@ -1649,8 +2306,9 @@ export function createSecunderabadSurroundings(
     metalness: 0.05,
   });
   addStreetLights(group, groundHeight, streetLampMaterial);
-  group.userData.caveat = 'Access-loop roads, boundary treatment, block footprints, street-light placements, traffic props and landscaping clusters are illustrative; no surrounding street/building survey was used.';
-  group.userData.intermodalCaveat = 'Metro guideway bearing, station massing, bus-terminal footprint and relative spacing are conceptual only. Nearby landmarks do not establish an exact route, direct shared interchange or surveyed connection.';
+  group.userData.caveat = 'Access-loop and extension roads, boundary treatment, block footprints, street-light placements, traffic props and landscaping clusters are illustrative; no surrounding street/building survey was used.';
+  group.userData.intermodalCaveat = 'The gently curved Metro guideway, station massing, Rathifile terminal footprint and relative spacing are conceptual only. Nearby landmarks do not establish an exact route, direct shared interchange or surveyed connection.';
   group.userData.landscapeReference = 'Tree palette is informed by Hyderabad urban-tree surveys and park examples; forms, species distribution and quantities are illustrative, not a station-site inventory.';
-  return { group, streetLampMaterial };
+  group.userData.peopleReference = 'All human figures are low-poly static scale silhouettes; no real individual is represented.';
+  return { group, streetLampMaterial, updateAmbientTraffic };
 }
