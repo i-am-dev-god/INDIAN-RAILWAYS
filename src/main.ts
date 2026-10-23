@@ -626,7 +626,7 @@ function boot(): void {
 
   const sun = new THREE.DirectionalLight('#ffe2b2', 2.8);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1_536, 1_536);
+  sun.shadow.mapSize.set(2_048, 2_048);
   sun.shadow.camera.left = -260;
   sun.shadow.camera.right = 260;
   sun.shadow.camera.top = 260;
@@ -635,10 +635,12 @@ function boot(): void {
   sun.shadow.camera.far = 720;
   sun.shadow.bias = -0.00018;
   sun.shadow.normalBias = 0.025;
-  sun.shadow.radius = 3;
+  sun.shadow.radius = 2;
   scene.add(sun);
 
-  scene.fog = new THREE.Fog('#c7b18f', 340, 1_250);
+  // Longer falloff keeps distant buildings softly atmospheric without washing
+  // out the station foreground or treating browser fog as a performance test.
+  scene.fog = new THREE.Fog('#c7b18f', 480, 1_450);
 
   const terrainSize = 1_280;
   const terrainSegments = window.innerWidth < 700 ? 128 : 188;
@@ -805,7 +807,7 @@ function boot(): void {
   const duskFog = new THREE.Color('#9a7772');
   const nightFog = new THREE.Color('#26394a');
   const warmSun = new THREE.Color('#f2a56e');
-  const daylightSun = new THREE.Color('#fff1d1');
+  const daylightSun = new THREE.Color('#ffdda8');
   const dayHemisphereSky = new THREE.Color('#dce8ef');
   const nightHemisphereSky = new THREE.Color('#687d98');
   const dayHemisphereGround = new THREE.Color('#9d7952');
@@ -829,7 +831,7 @@ function boot(): void {
     const hour = THREE.MathUtils.clamp(rawHour, 13, 20);
     const phase = (hour - 6) / 12;
     const elevationDegrees = 63 * Math.sin(phase * Math.PI);
-    const azimuthDegrees = 184 + (hour - 13) * 15;
+    const azimuthDegrees = 315 + (hour - 13) * 10;
     const phi = THREE.MathUtils.degToRad(90 - elevationDegrees);
     const theta = THREE.MathUtils.degToRad(azimuthDegrees);
     sunDirection.setFromSphericalCoords(1, phi, theta).normalize();
